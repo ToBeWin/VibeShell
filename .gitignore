@@ -1,0 +1,46 @@
+# macOS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node / Frontend
+node_modules/
+**/node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/.cargo/
+
+# Build artifacts and bundles
+*.dmg
+*.app
+*.msi
+*.deb
+*.AppImage
+*.exe
+*.rpm
+
+# IDE / Editor
+.vscode/
+.idea/
+.kiro
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
