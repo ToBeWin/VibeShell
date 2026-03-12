@@ -1,7 +1,9 @@
 import { ArrowDownToLine, ArrowLeft, ArrowUpToLine, File as FileIcon, FolderPlus, FolderOpen, Loader2, Pencil, PlugZap, Save, Trash2, X, Upload } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSftpDragDrop } from '../hooks/useSftpDragDrop';
+import { REMOTE_FILE_PROTOCOLS, RemoteFileProtocol } from '../lib/tauri';
 
 interface FileBrowserPanelProps {
   host: string;
@@ -11,13 +13,13 @@ interface FileBrowserPanelProps {
   loading: boolean;
   error: string;
   protocolLabel: string;
-  protocol: 'ftp' | 'sftp';
+  protocol: RemoteFileProtocol;
   openFilePath: string | null;
   openFileContent: string;
   fileDirty: boolean;
   fileSaving: boolean;
   transferRunning: boolean;
-  onProtocolChange: (protocol: 'ftp' | 'sftp') => void;
+  onProtocolChange: (protocol: RemoteFileProtocol) => void;
   onFileContentChange: (content: string) => void;
   onSaveFile: () => void;
   onUploadFile: (file: globalThis.File) => void;
@@ -56,7 +58,10 @@ export function FileBrowserPanel({
   onInit,
   onNavigate,
 }: FileBrowserPanelProps) {
+  const { t } = useTranslation();
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const protocolDisplay = protocolLabel.toUpperCase();
+  const initHint = t('fileBrowser.initHint', { host, protocol: protocolDisplay });
   
   // SFTP drag-and-drop integration
   const dragDrop = useSftpDragDrop(protocol === 'sftp' ? sessionId : null, path);
@@ -74,7 +79,8 @@ export function FileBrowserPanel({
       animate={{ width: 320, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
       transition={{ type: 'spring', stiffness: 360, damping: 38 }}
-      className="bg-[#08080E]/95 backdrop-blur-3xl border-l border-white/[0.04] flex flex-col overflow-hidden shadow-[-4px_0_30px_rgba(0,0,0,0.4)] z-10"
+      className="backdrop-blur-3xl border-l flex flex-col overflow-hidden shadow-[-4px_0_30px_rgba(0,0,0,0.4)] z-10"
+      style={{ background: 'color-mix(in srgb, var(--panel-bg) 95%, black)', borderColor: 'var(--panel-border)' }}
     >
       <input
         ref={uploadInputRef}
@@ -90,9 +96,9 @@ export function FileBrowserPanel({
       />
       <div className="h-14 border-b border-white/[0.05] flex items-center px-4 gap-3 shrink-0">
         <FolderOpen size={15} className="text-violet-400" />
-        <span className="text-sm font-semibold text-white">Remote Files</span>
+        <span className="text-sm font-semibold text-white">{t('fileBrowser.title')}</span>
         <div className="ml-auto flex items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] p-1">
-          {(['ftp', 'sftp'] as const).map((item) => (
+          {REMOTE_FILE_PROTOCOLS.map((item) => (
             <button
               key={item}
               onClick={() => onProtocolChange(item)}
@@ -117,14 +123,14 @@ export function FileBrowserPanel({
             <div className="w-16 h-16 rounded-2xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-center mb-4 text-violet-400/50">
               <FolderOpen size={32} />
             </div>
-            <p className="text-sm font-medium text-gray-300 mb-2">No remote file session</p>
-            <p className="text-xs text-gray-500 mb-6">Connect to {host} to browse remote files in this drawer. Current protocol: {protocolLabel}.</p>
+            <p className="text-sm font-medium text-gray-300 mb-2">{t('fileBrowser.noSession')}</p>
+            <p className="text-xs text-gray-500 mb-6">{initHint}</p>
 
             <button onClick={onInit} disabled={loading} className="px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg text-xs font-medium text-white transition-colors shadow-lg flex-shrink-0 flex items-center gap-2">
               {loading ? <Loader2 size={13} className="animate-spin" /> : <PlugZap size={13} />}
-              Initialize Connection
+              {t('fileBrowser.initialize')}
             </button>
-            {error && <p className="mt-4 text-xs text-red-400 max-w-[240px] truncate">{error}</p>}
+            {error && <p className="mt-4 max-w-[240px] text-center text-xs leading-5 text-red-400">{error}</p>}
           </div>
         ) : (
           <>
@@ -135,16 +141,14 @@ export function FileBrowserPanel({
                 </button>
               )}
               <span className="text-xs font-mono text-gray-400 truncate flex-1">{path}</span>
-              {protocol === 'sftp' && (
-                <button
-                  onClick={onCreateDirectory}
-                  disabled={loading || transferRunning}
-                  className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[11px] font-medium text-gray-200 disabled:opacity-40"
-                >
-                  <FolderPlus size={11} />
-                  New
-                </button>
-              )}
+              <button
+                onClick={onCreateDirectory}
+                disabled={loading || transferRunning}
+                className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[11px] font-medium text-gray-200 disabled:opacity-40"
+              >
+                <FolderPlus size={11} />
+                {t('fileBrowser.newDirectory')}
+              </button>
               {loading && <Loader2 size={12} className="animate-spin text-violet-400" />}
             </div>
             {error && <div className="text-xs text-red-500 mb-3 bg-red-500/10 p-2 rounded-lg">{error}</div>}
@@ -164,8 +168,8 @@ export function FileBrowserPanel({
                   <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm z-10 pointer-events-none">
                     <div className="text-center">
                       <Upload size={32} className="mx-auto mb-2 text-violet-400" />
-                      <p className="text-sm font-medium text-white">Drop files to upload</p>
-                      <p className="text-xs text-gray-400 mt-1">Folders are not supported</p>
+                      <p className="text-sm font-medium text-white">{t('fileBrowser.dropUpload')}</p>
+                      <p className="text-xs text-gray-400 mt-1">{t('fileBrowser.foldersUnsupported')}</p>
                     </div>
                   </div>
                 )}
@@ -192,7 +196,7 @@ export function FileBrowserPanel({
                   </div>
                 ))}
                 
-                {files.length === 0 && !loading && <div className="text-center text-xs text-gray-600 py-6">Empty directory</div>}
+                {files.length === 0 && !loading && <div className="text-center text-xs text-gray-600 py-6">{t('fileBrowser.emptyDirectory')}</div>}
                 {files.map((file, index) => (
                   <div key={index} className="group flex items-center gap-1 rounded hover:bg-white/5">
                     <button
@@ -203,7 +207,7 @@ export function FileBrowserPanel({
                       <FileIcon size={13} className="shrink-0 text-gray-500 group-hover:text-violet-400" />
                       <span className="truncate">{file}</span>
                     </button>
-                    {protocol === 'sftp' && file !== '..' && (
+                    {file !== '..' && (
                       <div className="pr-1 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => onRenameEntry(file)}
@@ -227,48 +231,46 @@ export function FileBrowserPanel({
 
               <div className="min-h-0 rounded-xl border border-white/[0.06] bg-black/20 overflow-hidden flex flex-col">
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-                  <span className="text-[11px] uppercase tracking-[0.16em] text-gray-500">Editor</span>
+                  <span className="text-[11px] uppercase tracking-[0.16em] text-gray-500">{t('fileBrowser.editor')}</span>
                   <span className="text-xs text-gray-400 truncate flex-1">
-                    {openFilePath ?? (protocol === 'sftp' ? 'Select a text file to preview or edit' : 'Editing is currently available only over SFTP')}
+                    {openFilePath ?? t('fileBrowser.selectFile')}
                   </span>
-                  {protocol === 'sftp' && (
-                    <button
-                      onClick={() => uploadInputRef.current?.click()}
-                      disabled={transferRunning || loading}
-                      className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-gray-200 disabled:opacity-40"
-                    >
-                      <ArrowUpToLine size={11} />
-                      Upload
-                    </button>
-                  )}
-                  {protocol === 'sftp' && openFilePath && (
+                  <button
+                    onClick={() => uploadInputRef.current?.click()}
+                    disabled={transferRunning || loading}
+                    className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-gray-200 disabled:opacity-40"
+                  >
+                    <ArrowUpToLine size={11} />
+                    {t('fileBrowser.upload')}
+                  </button>
+                  {openFilePath && (
                     <button
                       onClick={onDownloadFile}
                       disabled={transferRunning || loading}
                       className="inline-flex items-center gap-1 rounded-lg border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] font-medium text-gray-200 disabled:opacity-40"
                     >
                       {transferRunning ? <Loader2 size={11} className="animate-spin" /> : <ArrowDownToLine size={11} />}
-                      Download
+                      {t('fileBrowser.download')}
                     </button>
                   )}
-                  {protocol === 'sftp' && openFilePath && (
+                  {openFilePath && (
                     <button
                       onClick={onSaveFile}
                       disabled={fileSaving || transferRunning || !fileDirty}
                       className="inline-flex items-center gap-1 rounded-lg bg-violet-600 px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40"
                     >
                       {fileSaving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
-                      Save
+                      {t('fileBrowser.save')}
                     </button>
                   )}
                 </div>
                 <textarea
                   value={openFileContent}
                   onChange={(e) => onFileContentChange(e.target.value)}
-                  readOnly={protocol !== 'sftp' || !openFilePath || loading}
+                  readOnly={!openFilePath || loading}
                   spellCheck={false}
                   className="flex-1 w-full resize-none bg-transparent px-3 py-2 text-xs font-mono text-gray-200 outline-none placeholder:text-gray-600"
-                  placeholder={protocol === 'sftp' ? 'Open a file from the list above…' : 'Switch to SFTP to edit remote files.'}
+                  placeholder="Open a file from the list above…"
                 />
               </div>
             </div>

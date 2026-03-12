@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, useState, useEffect } from 'react';
+import { lazy, Suspense, useRef, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import '@xterm/xterm/css/xterm.css';
 import { useTranslation } from 'react-i18next';
@@ -9,11 +9,13 @@ import {
   sshDisconnect,
 } from './lib/tauri';
 import { TerminalGrid } from './components/TerminalGrid';
+import { WorkspaceEmptyState } from './components/WorkspaceEmptyState';
 import { WorkspaceSidebarV2 as WorkspaceSidebar, LocalServer } from './components/WorkspaceSidebarV2';
-import { WorkspaceHeader } from './components/WorkspaceHeader';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { ToastContainer } from './components/ToastContainer';
+import { ConfirmModal, InputModal } from './components/DialogModals';
 import { useToast } from './hooks/useToast';
+import { restoreWorkspaceState, useWorkspacePersistence } from './hooks/useWorkspacePersistence';
 import { usePaneAiState } from './state/ai';
 import { useAiActions } from './state/ai-actions';
 import { useAppShellBehaviors } from './state/app-shell-behaviors';
@@ -23,6 +25,7 @@ import { useRemoteFileActions } from './state/file-actions';
 import { usePaneFileState } from './state/files';
 import { useShellState } from './state/shell';
 import { useSshSessionEvents } from './state/ssh-events';
+import { shouldApplyRestoredWorkspace } from './state/workspace-restore';
 import {
   collectPaneIdsForServer,
   collectPaneIdsForSession,
@@ -38,16 +41,6 @@ const AddServerModal = lazy(() => import('./components/AppModals').then(module =
 const HostKeyTrustModal = lazy(() => import('./components/AppModals').then(module => ({ default: module.HostKeyTrustModal })));
 const NoticeModal = lazy(() => import('./components/AppModals').then(module => ({ default: module.NoticeModal })));
 
-async function resolveServerPassword(serverId: string, promptText: string): Promise<string | null> {
-  try {
-    const stored = await getServerPassword(serverId);
-    if (stored) {
-      return stored;
-    }
-  } catch {}
-  return prompt(promptText);
-}
-
 // ─── Main App ──────────────────────────────────────────────────────
 export default function App() {
   const { t, i18n }                        = useTranslation();
@@ -59,6 +52,8 @@ export default function App() {
   const {
     zenMode,
     setZenMode,
+    sidebarCollapsed,
+    setSidebarCollapsed,
     aiOpen,
     setAiOpen,
     sftpOpen,
@@ -73,11 +68,19 @@ export default function App() {
     setPendingHostKeyPrompt,
     noticeModal,
     setNoticeModal,
+    dialogRequest,
+    setDialogRequest,
     ollamaModel,
     setOllamaModel,
     ollamaUrl,
     ollamaModels,
     setOllamaModels,
+    theme,
+    setTheme,
+    terminalFont,
+    setTerminalFont,
+    aiDrawerWidth,
+    setAiDrawerWidth,
   } = useShellState();
   
   const {
@@ -97,7 +100,39 @@ export default function App() {
   } = useWorkspaceState(initialServers);
   
   const [inputText, setInputText]         = useState('');
+  const [serversHydrated, setServersHydrated] = useState(false);
+  const restoredWorkspaceRef = useRef(false);
   const hostKeyDecisionRef = useRef<((approved: boolean) => void) | null>(null);
+  const inputDialogDecisionRef = useRef<((value: string | null) => void) | null>(null);
+  const confirmDialogDecisionRef = useRef<((value: boolean) => void) | null>(null);
+
+  const requestTextInput = (title: string, message: string, defaultValue = '', confirmLabel = t('modal.confirm')) =>
+    new Promise<string | null>(resolve => {
+      inputDialogDecisionRef.current = resolve;
+      setDialogRequest({ kind: 'input', inputType: 'text', title, message, defaultValue, confirmLabel, cancelLabel: t('modal.cancel') });
+    });
+
+  const requestSecureInput = (title: string, message: string, defaultValue = '', confirmLabel = t('modal.confirm')) =>
+    new Promise<string | null>(resolve => {
+      inputDialogDecisionRef.current = resolve;
+      setDialogRequest({ kind: 'input', inputType: 'password', title, message, defaultValue, confirmLabel, cancelLabel: t('modal.cancel') });
+    });
+
+  const requestConfirmation = (title: string, message: string, confirmLabel = t('modal.confirm')) =>
+    new Promise<boolean>(resolve => {
+      confirmDialogDecisionRef.current = resolve;
+      setDialogRequest({ kind: 'confirm', title, message, confirmLabel, cancelLabel: t('modal.cancel') });
+    });
+
+  const resolveServerPassword = async (serverId: string, promptText: string): Promise<string | null> => {
+    try {
+      const stored = await getServerPassword(serverId);
+      if (stored) {
+        return stored;
+      }
+    } catch {}
+    return requestSecureInput(t('modal.serverPasswordTitle'), promptText, '', t('modal.serverPasswordConfirm'));
+  };
 
   const {
     paneFileSessionId,
@@ -165,6 +200,52 @@ export default function App() {
     setActivePaneId,
     setOllamaModels,
     setOllamaModel,
+    onServersHydrated: () => setServersHydrated(true),
+  });
+
+  const handleRestoreWorkspace = useCallback((state: {
+    sessions: Array<{ server_id: string; pane_ids: string[]; active_pane_id?: string }>;
+    active_session_id?: string;
+    last_saved: number;
+  }) => {
+      if (!serversHydrated || restoredWorkspaceRef.current) {
+        return;
+      }
+      if (!shouldApplyRestoredWorkspace({
+        servers,
+        workspacePanes,
+        activeSessionId,
+        activePaneId,
+      })) {
+        restoredWorkspaceRef.current = true;
+        return;
+      }
+      const restored = restoreWorkspaceState(state, servers);
+      if (!restored) {
+        restoredWorkspaceRef.current = true;
+        return;
+      }
+      if (restoredWorkspaceRef.current) {
+        return;
+      }
+      restoredWorkspaceRef.current = true;
+      setWorkspaceSessions(restored.sessions);
+      setWorkspacePanes(restored.panes);
+      setActiveSessionId(restored.activeSessionId);
+      setActivePaneId(restored.activePaneId);
+      if (restored.activeServer) {
+        setActiveServer(restored.activeServer);
+      }
+  }, [activePaneId, activeSessionId, serversHydrated, servers, setActivePaneId, setActiveServer, setActiveSessionId, setWorkspacePanes, setWorkspaceSessions, workspacePanes]);
+
+  useWorkspacePersistence({
+    availableServers: servers,
+    workspaceSessions,
+    workspacePanes,
+    activeSessionId,
+    activePaneId,
+    enabled: serversHydrated,
+    onRestore: handleRestoreWorkspace,
   });
   useSshSessionEvents({
     workspacePanes,
@@ -183,8 +264,12 @@ export default function App() {
     workspaceSessions,
     currentCommandHistory,
     currentRagContext,
+    currentFileSessionId,
+    currentFilePath,
+    currentOpenFilePath,
     recordTerminalLine,
   });
+  const hasLiveConnection = workspacePanes.some(pane => pane.connected || pane.connecting);
 
   const { sendMessage, runAgentForActivePane } = useAiActions({
     activePaneId,
@@ -224,6 +309,7 @@ export default function App() {
     hostKeyDecisionRef,
     setNoticeModal,
     resolveServerPassword,
+    requestSecureInput,
     setServers,
     setWorkspaceSessions,
     setWorkspacePanes,
@@ -253,6 +339,9 @@ export default function App() {
     paneOpenFileContent,
     ensureTrustedHostKey,
     resolveServerPassword,
+    requestTextInput,
+    requestSecureInput,
+    requestConfirmation,
     setSftpOpen,
     setPaneFileSessionId,
     setPaneFileList,
@@ -300,6 +389,8 @@ export default function App() {
     workspaceSessions,
     workspacePanes,
     ensureTrustedHostKey,
+    requestSecureInput,
+    setNoticeModal,
     setServers,
     setWorkspaceSessions,
     setWorkspacePanes,
@@ -309,6 +400,15 @@ export default function App() {
   });
 
   // Keyboard shortcuts for session switching (Cmd+1-9)
+  useEffect(() => {
+    localStorage.setItem('language', i18n.language);
+    document.documentElement.lang = i18n.language;
+  }, [i18n.language]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
@@ -337,15 +437,15 @@ export default function App() {
   const handleDeleteServer = async (server: LocalServer) => {
     if (servers.length <= 1) {
       setNoticeModal({
-        title: 'Cannot Delete Server',
-        message: 'At least one saved server must remain for now.',
+        title: t('server.cannotDeleteTitle'),
+        message: t('server.cannotDeleteMessage'),
       });
       return;
     }
 
     const deleted = await deleteServer(server.id).then(() => true).catch(error => {
       setNoticeModal({
-        title: 'Delete Server Failed',
+        title: t('server.deleteFailedTitle'),
         message: String(error),
       });
       return false;
@@ -362,7 +462,7 @@ export default function App() {
         }
         const fileSessionId = paneFileSessionId[pane.id];
         if (fileSessionId) {
-          tasks.push(remoteFilesDisconnect(paneFileProtocol[pane.id] ?? 'ftp', fileSessionId));
+          tasks.push(remoteFilesDisconnect(paneFileProtocol[pane.id] ?? 'sftp', fileSessionId));
         }
         return tasks;
       })
@@ -388,7 +488,9 @@ export default function App() {
       if (fallbackServer) {
         setActiveServer(fallbackServer);
         setActiveSessionId(fallbackServer.id);
-        const fallbackPane = nextPanes.find(entry => entry.sessionKey?.startsWith(`session-${fallbackServer.id}`) || entry.id === `pane-${fallbackServer.id}`) ?? nextPanes[0];
+        const fallbackPane = nextPanes.find(entry => entry.serverId === fallbackServer.id)
+          ?? nextPanes.find(entry => entry.sessionKey?.startsWith(`session-${fallbackServer.id}`) || entry.id === `pane-${fallbackServer.id}`)
+          ?? nextPanes[0];
         if (fallbackPane) {
           setActivePaneId(fallbackPane.id);
         }
@@ -397,10 +499,6 @@ export default function App() {
   };
 
   const handleRemoveSession = async (sessionId: string) => {
-    if (workspaceSessions.length <= 1) {
-      return;
-    }
-
     const session = workspaceSessions.find(entry => entry.id === sessionId);
     if (!session) {
       return;
@@ -416,7 +514,7 @@ export default function App() {
         }
         const fileSessionId = paneFileSessionId[pane.id];
         if (fileSessionId) {
-          tasks.push(remoteFilesDisconnect(paneFileProtocol[pane.id] ?? 'ftp', fileSessionId));
+          tasks.push(remoteFilesDisconnect(paneFileProtocol[pane.id] ?? 'sftp', fileSessionId));
         }
         return tasks;
       })
@@ -431,8 +529,13 @@ export default function App() {
     });
 
     setWorkspaceSessions(nextSessions);
-    if (nextPanes.length > 0) {
-      setWorkspacePanes(nextPanes);
+    setWorkspacePanes(nextPanes);
+
+    if (nextSessions.length === 0) {
+      setActiveSessionId('');
+      setActivePaneId('');
+      setActiveServer(servers.find(entry => entry.id !== sessionId) ?? servers[0]);
+      return;
     }
 
     if (activeSessionId === sessionId || activeServer.id === sessionId || removedPaneIds.has(activePaneId)) {
@@ -440,7 +543,9 @@ export default function App() {
       if (fallbackSession) {
         setActiveSessionId(fallbackSession.id);
         setActiveServer(fallbackSession);
-        const fallbackPane = nextPanes.find(entry => entry.sessionKey?.startsWith(`session-${fallbackSession.id}`) || entry.id === `pane-${fallbackSession.id}`) ?? nextPanes[0];
+        const fallbackPane = nextPanes.find(entry => entry.serverId === fallbackSession.id)
+          ?? nextPanes.find(entry => entry.sessionKey?.startsWith(`session-${fallbackSession.id}`) || entry.id === `pane-${fallbackSession.id}`)
+          ?? nextPanes[0];
         if (fallbackPane) {
           setActivePaneId(fallbackPane.id);
         }
@@ -449,7 +554,8 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-[#060609] text-gray-300 overflow-hidden select-none bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(100,40,200,0.07),transparent)]"
+    <div className="flex h-screen w-screen overflow-hidden select-none text-gray-300"
+      style={{ backgroundColor: 'var(--app-shell-bg)', backgroundImage: 'var(--app-shell-glow)' }}
       onKeyDown={handleKeyDown} tabIndex={-1}
     >
       {/* ── Sidebar ── */}
@@ -461,13 +567,15 @@ export default function App() {
             aiOpen={aiOpen}
             sftpOpen={sftpOpen}
             aiOnline={ollamaModels.length > 0}
+            collapsed={sidebarCollapsed}
             onSelectServer={selectServerInWorkspace}
             onAddServer={openAddServerModal}
             onEditServer={openEditServerModal}
             onDeleteServer={handleDeleteServer}
             onToggleAi={() => setAiOpen(v => !v)}
             onToggleSftp={() => setSftpOpen(v => !v)}
-            onToggleLanguage={() => i18n.changeLanguage(i18n.language === 'en' ? 'zh' : 'en')}
+            onToggleZenMode={() => setZenMode(v => !v)}
+            onToggleCollapse={() => setSidebarCollapsed(v => !v)}
             onOpenSettings={() => setShowSettings(true)}
           />
         )}
@@ -475,22 +583,6 @@ export default function App() {
 
       {/* ── Main: Tab bar + Terminal Grid ── */}
       <div className="flex-1 flex flex-col min-w-0">
-        <AnimatePresence>
-          {!zenMode && (
-            <WorkspaceHeader
-              paneConnected={currentPane.connected}
-              paneConnecting={currentPane.connecting}
-              paneLabel={currentPane.label}
-              paneHost={currentPane.host}
-              panePort={currentPanePort}
-              onConnect={connectActiveServer}
-              onCloseSession={() => void handleRemoveSession(activeSessionId)}
-              onAddSession={addWorkspaceSession}
-              onEnterZen={() => setZenMode(true)}
-            />
-          )}
-        </AnimatePresence>
-
         {!zenMode && (
           <WorkspaceTabs
             sessions={workspaceSessions}
@@ -513,17 +605,27 @@ export default function App() {
           )}
         </AnimatePresence>
 
-        {/* Multi-pane terminal grid */}
-        <TerminalGrid
-          defaultPane={currentPane}
-          availablePanes={workspacePanes}
-          activePaneId={activePaneId}
-          onActivePaneChange={handleActivePaneChange}
-          onCreatePane={createPaneForActiveSession}
-          onRemovePane={removeWorkspacePane}
-          onConnectPane={connectPaneById}
-          onLine={handleTerminalLine}
-        />
+        {hasLiveConnection ? (
+          <TerminalGrid
+            defaultPane={currentPane}
+            availablePanes={workspacePanes}
+            activePaneId={activePaneId}
+            terminalFont={terminalFont}
+            onActivePaneChange={handleActivePaneChange}
+            onCreatePane={createPaneForActiveSession}
+            onRemovePane={removeWorkspacePane}
+            onConnectPane={connectPaneById}
+            onLine={handleTerminalLine}
+          />
+        ) : (
+          <WorkspaceEmptyState
+            servers={servers}
+            onConnectCurrent={connectActiveServer}
+            onAddServer={openAddServerModal}
+            onOpenFiles={() => setSftpOpen(true)}
+            onSelectServer={selectServerInWorkspace}
+          />
+        )}
       </div>
 
       {/* ── SFTP Browser Panel ── */}
@@ -564,11 +666,13 @@ export default function App() {
         <Suspense fallback={null}>
           <AiDrawer
             open={aiOpen}
+            width={aiDrawerWidth}
             title={t('ai.title')}
             models={ollamaModels}
             selectedModel={ollamaModel}
             onSelectModel={setOllamaModel}
             onClose={() => setAiOpen(false)}
+            onWidthChange={setAiDrawerWidth}
             chatHistory={currentChatHistory}
             isThinking={isThinking}
             chatInput={inputText}
@@ -587,6 +691,7 @@ export default function App() {
             agentError={currentAgentError}
             aiProvider={aiConfig.provider}
             aiModel={aiConfig.model}
+            aiBaseUrl={aiConfig.ollamaBaseUrl}
             onAgentActionChange={(action) => setPaneAgentAction(prev => ({ ...prev, [activePaneId]: action }))}
             onAgentPromptChange={(prompt) => setPaneAgentPrompt(prev => ({ ...prev, [activePaneId]: prompt }))}
             onRunAgent={runAgentForActivePane}
@@ -626,9 +731,57 @@ export default function App() {
             />
           </Suspense>
         )}
+        {dialogRequest?.kind === 'input' && (
+          <Suspense fallback={null}>
+            <InputModal
+              title={dialogRequest.title}
+              message={dialogRequest.message}
+              defaultValue={dialogRequest.defaultValue}
+              inputType={dialogRequest.inputType}
+              confirmLabel={dialogRequest.confirmLabel}
+              cancelLabel={dialogRequest.cancelLabel}
+              onConfirm={(value) => {
+                setDialogRequest(null);
+                inputDialogDecisionRef.current?.(value);
+                inputDialogDecisionRef.current = null;
+              }}
+              onCancel={() => {
+                setDialogRequest(null);
+                inputDialogDecisionRef.current?.(null);
+                inputDialogDecisionRef.current = null;
+              }}
+            />
+          </Suspense>
+        )}
+        {dialogRequest?.kind === 'confirm' && (
+          <Suspense fallback={null}>
+            <ConfirmModal
+              title={dialogRequest.title}
+              message={dialogRequest.message}
+              confirmLabel={dialogRequest.confirmLabel}
+              cancelLabel={dialogRequest.cancelLabel}
+              onConfirm={() => {
+                setDialogRequest(null);
+                confirmDialogDecisionRef.current?.(true);
+                confirmDialogDecisionRef.current = null;
+              }}
+              onCancel={() => {
+                setDialogRequest(null);
+                confirmDialogDecisionRef.current?.(false);
+                confirmDialogDecisionRef.current = null;
+              }}
+            />
+          </Suspense>
+        )}
         {showSettings && (
           <Suspense fallback={null}>
-            <SettingsPanel onClose={() => setShowSettings(false)}/>
+            <SettingsPanel
+              theme={theme}
+              onThemeChange={setTheme}
+              terminalFont={terminalFont}
+              onTerminalFontChange={setTerminalFont}
+              onClose={() => setShowSettings(false)}
+            />
           </Suspense>
         )}
       </AnimatePresence>

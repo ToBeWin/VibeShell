@@ -35,8 +35,8 @@ pub struct SshSession {
     pub output_buffer: Arc<Mutex<VecDeque<Vec<u8>>>>,
     pub status_buffer: Arc<Mutex<VecDeque<SshStatusEvent>>>,
     // FIXED: Use Arc<Mutex<>> for shared ownership instead of moved handle
-    pub session: Arc<Mutex<Option<client::Handle<VibeClient>>>>,
-    pub channel: Arc<Mutex<Option<Channel<client::Msg>>>>,
+    pub(crate) session: Arc<Mutex<Option<client::Handle<VibeClient>>>>,
+    pub(crate) channel: Arc<Mutex<Option<Channel<client::Msg>>>>,
 }
 
 // ─── Global session registry ───────────────────────────────────────
@@ -111,6 +111,8 @@ pub async fn connect(
     port: u16,
     user: String,
     password: String,
+    private_key: Option<String>,
+    private_key_passphrase: Option<String>,
     registry: Arc<Mutex<SessionRegistry>>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -136,6 +138,18 @@ pub async fn connect(
         .map_err(|e| format!("SSH handshake failed: {}", e))?;
 
     let mut authed = false;
+
+    // Try explicit private key first (if provided)
+    if let Some(key_data) = private_key.as_ref() {
+        let passphrase = private_key_passphrase.as_deref();
+        let key_pair = russh_keys::decode_secret_key(key_data, passphrase)
+            .map_err(|e| format!("Private key parse failed: {}", e))?;
+        if let Ok(success) = session.authenticate_publickey(&user, Arc::new(key_pair)).await {
+            if success {
+                authed = true;
+            }
+        }
+    }
 
     // Try public key auth first
     if let Some(home_dir) = dirs::home_dir() {

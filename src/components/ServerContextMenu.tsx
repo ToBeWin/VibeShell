@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Star, Rocket, Wrench, FolderPlus } from 'lucide-react';
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface ServerContextMenuProps {
   x: number;
@@ -27,6 +28,7 @@ export function ServerContextMenu({
   onMoveToGroup,
   onClose,
 }: ServerContextMenuProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,12 +60,12 @@ export function ServerContextMenu({
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.1 }}
-      style={{ left: x, top: y }}
-      className="fixed z-50 w-48 bg-[#0D0D14] border border-white/10 rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.6)] overflow-hidden"
+      className="fixed z-50 w-48 rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.6)] overflow-hidden"
+      style={{ left: x, top: y, background: 'var(--panel-bg)', border: '1px solid var(--panel-border)' }}
     >
       <div className="py-1">
         <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-gray-600">
-          Move to Group
+          {t('serverMenu.moveToGroup')}
         </div>
         {groups.map(group => {
           const Icon = groupIcons[group.id] || FolderPlus;

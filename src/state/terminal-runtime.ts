@@ -17,6 +17,7 @@ import { useCommandHistory } from '../hooks/useCommandHistory';
 interface UseTerminalPaneRuntimeOptions {
   pane: PaneConfig;
   active: boolean;
+  terminalFont?: string;
   onLine?: (line: string) => void;
 }
 
@@ -31,6 +32,7 @@ function focusTerminalContainer(container: HTMLDivElement | null, term: Terminal
 export function useTerminalPaneRuntime({
   pane,
   active,
+  terminalFont = 'JetBrains Mono',
   onLine,
 }: UseTerminalPaneRuntimeOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -38,13 +40,16 @@ export function useTerminalPaneRuntime({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const paneRef = useRef(pane);
+  const activeRef = useRef(active);
+  const onLineRef = useRef(onLine);
   const lineBufferRef = useRef('');
   const disconnectedHintShownRef = useRef(false);
   const previousModeRef = useRef<ReturnType<typeof getTerminalMode>>(getTerminalMode(pane));
   const currentInputRef = useRef('');
   
   // Command history integration
-  const history = useCommandHistory(pane.sessionId || null);
+  const history = useCommandHistory(pane.serverId || null);
+  const historyRef = useRef(history);
   const [, setIsNavigatingHistory] = useState(false);
 
   useEffect(() => {
@@ -52,12 +57,24 @@ export function useTerminalPaneRuntime({
   }, [pane]);
 
   useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+
+  useEffect(() => {
+    onLineRef.current = onLine;
+  }, [onLine]);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
 
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: '"JetBrains Mono", "Cascadia Code", monospace',
+      fontFamily: `"${terminalFont}", monospace`,
       fontSize: 13.5,
       lineHeight: 1.5,
       theme: {
@@ -120,20 +137,14 @@ export function useTerminalPaneRuntime({
       const handledRemotely = await writeRemoteInput(term, currentPane, data);
       if (!handledRemotely) {
         // Only use local echo for non-SSH connections
-        lineBufferRef.current = handleLocalTerminalInput(
-          term,
-          currentPane,
-          data,
-          lineBufferRef.current,
-          onLine
-        );
+        lineBufferRef.current = handleLocalTerminalInput(term, currentPane, data, lineBufferRef.current, onLineRef.current);
       }
     };
 
     const input = inputRef.current;
 
     const keydownListener = (event: KeyboardEvent) => {
-      if (!active) {
+      if (!activeRef.current) {
         return;
       }
       if (event.metaKey) {
@@ -150,7 +161,7 @@ export function useTerminalPaneRuntime({
         if (event.key === 'ArrowUp' && !event.ctrlKey && !event.altKey) {
           event.preventDefault();
           event.stopPropagation();
-          const historyCommand = history.navigateUp(currentInputRef.current);
+          const historyCommand = historyRef.current.navigateUp(currentInputRef.current);
           if (historyCommand) {
             // Clear current line
             const clearLength = currentInputRef.current.length;
@@ -168,7 +179,7 @@ export function useTerminalPaneRuntime({
         if (event.key === 'ArrowDown' && !event.ctrlKey && !event.altKey) {
           event.preventDefault();
           event.stopPropagation();
-          const historyCommand = history.navigateDown(currentInputRef.current);
+          const historyCommand = historyRef.current.navigateDown(currentInputRef.current);
           // Clear current line
           const clearLength = currentInputRef.current.length;
           for (let i = 0; i < clearLength; i++) {
@@ -177,7 +188,7 @@ export function useTerminalPaneRuntime({
           // Write history command or saved input
           term.write(historyCommand);
           currentInputRef.current = historyCommand;
-          if (history.currentIndex === -1) {
+          if (historyRef.current.currentIndex === -1) {
             setIsNavigatingHistory(false);
           }
           return;
@@ -187,7 +198,7 @@ export function useTerminalPaneRuntime({
         if (event.key === 'r' && event.ctrlKey && !event.altKey) {
           event.preventDefault();
           event.stopPropagation();
-          history.startSearch(currentInputRef.current);
+          historyRef.current.startSearch(currentInputRef.current);
           term.write('\r\n\x1b[2m(reverse-i-search): \x1b[0m');
           return;
         }
@@ -207,7 +218,7 @@ export function useTerminalPaneRuntime({
       // Handle Enter key - save command to history (LOCAL MODE ONLY)
       if (!isRemoteMode && data === '\r' && currentInputRef.current.trim()) {
         const command = currentInputRef.current.trim();
-        history.appendCommand(command);
+        historyRef.current.appendCommand(command);
         currentInputRef.current = '';
         setIsNavigatingHistory(false);
       }
@@ -221,7 +232,7 @@ export function useTerminalPaneRuntime({
     };
 
     const inputListener = (event: Event) => {
-      if (!active) {
+      if (!activeRef.current) {
         return;
       }
       const target = event.currentTarget;
@@ -241,7 +252,7 @@ export function useTerminalPaneRuntime({
     };
 
     const pasteListener = (event: ClipboardEvent) => {
-      if (!active) {
+      if (!activeRef.current) {
         return;
       }
       const text = event.clipboardData?.getData('text');
@@ -265,20 +276,26 @@ export function useTerminalPaneRuntime({
 
     // Auto-focus terminal when window regains focus (helps with zen mode)
     const windowFocusListener = () => {
-      if (active) {
+      if (activeRef.current) {
         focusTerminalContainer(container, term);
       }
     };
     window.addEventListener('focus', windowFocusListener);
 
     const resizeObserver = new ResizeObserver(() => {
-      requestAnimationFrame(safeFit);
-      const currentPane = paneRef.current;
-      if (currentPane.sessionId && currentPane.connected) {
+      requestAnimationFrame(() => {
+        safeFit();
+        const currentPane = paneRef.current;
+        if (!currentPane.sessionId || !currentPane.connected) {
+          return;
+        }
+        if (term.cols <= 0 || term.rows <= 0) {
+          return;
+        }
         sshResize(currentPane.sessionId, term.cols, term.rows).catch(error => {
           term.write(`\r\n\x1b[31m[ssh resize failed]\x1b[0m ${String(error)}\r\n`);
         });
-      }
+      });
     });
     resizeObserver.observe(container);
     fitFrame1 = requestAnimationFrame(() => {
@@ -296,10 +313,11 @@ export function useTerminalPaneRuntime({
       cancelAnimationFrame(fitFrame1);
       cancelAnimationFrame(fitFrame2);
       resizeObserver.disconnect();
+      termRef.current = null;
       term.dispose();
       fitRef.current = null;
       };
-  }, [active, onLine, pane.id]);
+  }, [pane.id, terminalFont]);
 
   useEffect(() => {
     const term = termRef.current;

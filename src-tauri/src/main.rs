@@ -21,7 +21,9 @@ use app::ProviderProfile;
 use ssh::config::{HostKeyRecord, HostKeyScanResult, ServerConfig, SecureStorage};
 use ssh::SessionRegistry;
 use tokio::sync::Mutex;
+use tokio::time::{sleep, Duration};
 use std::collections::HashMap;
+use std::process::Stdio;
 use std::sync::Arc;
 use storage::StorageService;
 use encryption::EncryptionService;
@@ -80,6 +82,26 @@ async fn save_server_password(server_id: String, password: String) -> Result<(),
 #[tauri::command]
 async fn get_server_password(server_id: String) -> Result<String, String> {
     SecureStorage::get_password(&server_id)
+}
+
+#[tauri::command]
+async fn delete_server_password(server_id: String) -> Result<(), String> {
+    SecureStorage::delete_password(&server_id)
+}
+
+#[tauri::command]
+async fn save_server_private_key(server_id: String, private_key: String) -> Result<(), String> {
+    SecureStorage::save_private_key(&server_id, &private_key)
+}
+
+#[tauri::command]
+async fn get_server_private_key(server_id: String) -> Result<String, String> {
+    SecureStorage::get_private_key(&server_id)
+}
+
+#[tauri::command]
+async fn delete_server_private_key(server_id: String) -> Result<(), String> {
+    SecureStorage::delete_private_key(&server_id)
 }
 
 #[tauri::command]
@@ -152,10 +174,22 @@ async fn ssh_connect(
     port: u16,
     user: String,
     password: String,
+    private_key: Option<String>,
+    private_key_passphrase: Option<String>,
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    ssh::connect(session_id, host, port, user, password, state.ssh_sessions.clone(), app).await
+    ssh::connect(
+        session_id,
+        host,
+        port,
+        user,
+        password,
+        private_key,
+        private_key_passphrase,
+        state.ssh_sessions.clone(),
+        app
+    ).await
 }
 
 #[tauri::command]
@@ -283,12 +317,21 @@ async fn remote_files_connect(
     port: u16,
     user: String,
     password: String,
+    private_key: Option<String>,
+    private_key_passphrase: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     match protocol {
         RemoteFileProtocol::Ftp => ftp_connect(session_id, host, port, user, password, state).await,
         RemoteFileProtocol::Sftp => {
-            let client = sftp::SftpClient::connect(&host, port, &user, &password).await?;
+            let client = sftp::SftpClient::connect(
+                &host,
+                port,
+                &user,
+                &password,
+                private_key.as_deref(),
+                private_key_passphrase.as_deref(),
+            ).await?;
             let mut reg = state.sftp_sessions.lock().await;
             reg.insert(session_id, client);
             Ok(())
@@ -362,7 +405,14 @@ async fn remote_files_read(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     match protocol {
-        RemoteFileProtocol::Ftp => Err("FTP file reading is not implemented yet. Use SFTP for remote file editing.".to_string()),
+        RemoteFileProtocol::Ftp => {
+            let mut reg = state.ftp_sessions.lock().await;
+            if let Some(client) = reg.get_mut(&session_id) {
+                client.read_file(&path).await
+            } else {
+                Err(format!("FTP Session not found: {}", session_id))
+            }
+        }
         RemoteFileProtocol::Sftp => {
             let reg = state.sftp_sessions.lock().await;
             if let Some(client) = reg.get(&session_id) {
@@ -383,7 +433,14 @@ async fn remote_files_write(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     match protocol {
-        RemoteFileProtocol::Ftp => Err("FTP file writing is not implemented yet. Use SFTP for remote file editing.".to_string()),
+        RemoteFileProtocol::Ftp => {
+            let mut reg = state.ftp_sessions.lock().await;
+            if let Some(client) = reg.get_mut(&session_id) {
+                client.write_file(&path, &content).await
+            } else {
+                Err(format!("FTP Session not found: {}", session_id))
+            }
+        }
         RemoteFileProtocol::Sftp => {
             let reg = state.sftp_sessions.lock().await;
             if let Some(client) = reg.get(&session_id) {
@@ -403,7 +460,14 @@ async fn remote_files_download(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<u8>, String> {
     match protocol {
-        RemoteFileProtocol::Ftp => Err("FTP download is not implemented yet. Use SFTP for remote file transfers.".to_string()),
+        RemoteFileProtocol::Ftp => {
+            let mut reg = state.ftp_sessions.lock().await;
+            if let Some(client) = reg.get_mut(&session_id) {
+                client.read_bytes(&path).await
+            } else {
+                Err(format!("FTP Session not found: {}", session_id))
+            }
+        }
         RemoteFileProtocol::Sftp => {
             let reg = state.sftp_sessions.lock().await;
             if let Some(client) = reg.get(&session_id) {
@@ -424,7 +488,14 @@ async fn remote_files_upload(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     match protocol {
-        RemoteFileProtocol::Ftp => Err("FTP upload is not implemented yet. Use SFTP for remote file transfers.".to_string()),
+        RemoteFileProtocol::Ftp => {
+            let mut reg = state.ftp_sessions.lock().await;
+            if let Some(client) = reg.get_mut(&session_id) {
+                client.write_bytes(&path, &data).await
+            } else {
+                Err(format!("FTP Session not found: {}", session_id))
+            }
+        }
         RemoteFileProtocol::Sftp => {
             let reg = state.sftp_sessions.lock().await;
             if let Some(client) = reg.get(&session_id) {
@@ -444,7 +515,14 @@ async fn remote_files_mkdir(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     match protocol {
-        RemoteFileProtocol::Ftp => Err("FTP mkdir is not implemented yet. Use SFTP for remote file management.".to_string()),
+        RemoteFileProtocol::Ftp => {
+            let mut reg = state.ftp_sessions.lock().await;
+            if let Some(client) = reg.get_mut(&session_id) {
+                client.create_dir(&path).await
+            } else {
+                Err(format!("FTP Session not found: {}", session_id))
+            }
+        }
         RemoteFileProtocol::Sftp => {
             let reg = state.sftp_sessions.lock().await;
             if let Some(client) = reg.get(&session_id) {
@@ -465,7 +543,14 @@ async fn remote_files_rename(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     match protocol {
-        RemoteFileProtocol::Ftp => Err("FTP rename is not implemented yet. Use SFTP for remote file management.".to_string()),
+        RemoteFileProtocol::Ftp => {
+            let mut reg = state.ftp_sessions.lock().await;
+            if let Some(client) = reg.get_mut(&session_id) {
+                client.rename_path(&old_path, &new_path).await
+            } else {
+                Err(format!("FTP Session not found: {}", session_id))
+            }
+        }
         RemoteFileProtocol::Sftp => {
             let reg = state.sftp_sessions.lock().await;
             if let Some(client) = reg.get(&session_id) {
@@ -485,7 +570,14 @@ async fn remote_files_delete(
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
     match protocol {
-        RemoteFileProtocol::Ftp => Err("FTP delete is not implemented yet. Use SFTP for remote file management.".to_string()),
+        RemoteFileProtocol::Ftp => {
+            let mut reg = state.ftp_sessions.lock().await;
+            if let Some(client) = reg.get_mut(&session_id) {
+                client.delete_path(&path).await
+            } else {
+                Err(format!("FTP Session not found: {}", session_id))
+            }
+        }
         RemoteFileProtocol::Sftp => {
             let reg = state.sftp_sessions.lock().await;
             if let Some(client) = reg.get(&session_id) {
@@ -612,6 +704,40 @@ async fn ai_chat_stream_with_config(
 #[tauri::command]
 async fn list_ollama_models(ollama_url: String) -> Result<Vec<String>, String> {
     ai::list_ollama_models(&ollama_url).await
+}
+
+#[tauri::command]
+async fn start_ollama_service(ollama_url: String) -> Result<Vec<String>, String> {
+    if let Ok(models) = ai::list_ollama_models(&ollama_url).await {
+        return Ok(models);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("-a")
+            .arg("Ollama")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+
+    let _ = std::process::Command::new("ollama")
+        .arg("serve")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    let mut last_error = "Ollama did not start in time.".to_string();
+    for _ in 0..8 {
+        sleep(Duration::from_millis(1250)).await;
+        match ai::list_ollama_models(&ollama_url).await {
+            Ok(models) => return Ok(models),
+            Err(error) => last_error = error,
+        }
+    }
+
+    Err(last_error)
 }
 
 #[tauri::command]
@@ -822,6 +948,10 @@ fn main() {
             save_server,
             delete_server,
             save_server_password,
+            delete_server_password,
+            save_server_private_key,
+            get_server_private_key,
+            delete_server_private_key,
             get_server_password,
             ssh_scan_host_key,
             ssh_trust_host_key,
@@ -854,6 +984,7 @@ fn main() {
             ai_chat_with_config,
             ai_chat_stream_with_config,
             list_ollama_models,
+            start_ollama_service,
             list_ai_provider_profiles,
             run_agent_task,
             save_connection_config,

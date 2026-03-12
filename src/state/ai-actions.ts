@@ -1,6 +1,7 @@
 import { AgentAction, AgentResponse, SessionContext } from '../lib/domain';
 import { aiChatStreamWithConfig, ChatMessage, runAgentTask } from '../lib/tauri';
 import { AiConfig } from './ai';
+import i18n from '../i18n';
 
 interface UseAiActionsOptions {
   activePaneId: string;
@@ -93,9 +94,10 @@ export function useAiActions({
       setPaneThinkingState(prev => ({ ...prev, [activePaneId]: false }));
       setPaneChatHistory(prev => {
         const history = [...(prev[activePaneId] ?? [])];
+        const providerLabel = aiConfig.provider.toUpperCase();
         const errorMessage = aiConfig.provider === 'ollama' 
-          ? `⚠️ ${error}\n\nStart Ollama: \`ollama serve\``
-          : `⚠️ ${error}\n\n请检查 ${aiConfig.provider.toUpperCase()} API 配置`;
+          ? `⚠️ ${error}\n\n${i18n.t('ai.errors.ollamaHint')}`
+          : `⚠️ ${error}\n\n${i18n.t('ai.errors.providerHint', { provider: providerLabel })}`;
         history[history.length - 1] = {
           ...history[history.length - 1],
           content: errorMessage,

@@ -1,7 +1,9 @@
 import { HostKeyScanResult } from '../lib/domain';
-import { sshConnect, sshScanHostKey, sshTrustHostKey } from '../lib/tauri';
+import { getServerPrivateKey, sshConnect, sshScanHostKey, sshTrustHostKey } from '../lib/tauri';
 import { PaneConfig } from '../components/TerminalGrid';
-import { WorkspaceServer } from './workspace';
+import { findSessionForPane, WorkspaceServer } from './workspace';
+import { formatSshConnectionError } from './ssh-errors';
+import i18n from '../i18n';
 
 interface NoticeState {
   title: string;
@@ -19,6 +21,7 @@ interface UseConnectionActionsOptions {
   hostKeyDecisionRef: React.MutableRefObject<((approved: boolean) => void) | null>;
   setNoticeModal: React.Dispatch<React.SetStateAction<NoticeState | null>>;
   resolveServerPassword: (serverId: string, promptText: string) => Promise<string | null>;
+  requestSecureInput: (title: string, message: string, defaultValue?: string, confirmLabel?: string) => Promise<string | null>;
   setServers: React.Dispatch<React.SetStateAction<WorkspaceServer[]>>;
   setWorkspaceSessions: React.Dispatch<React.SetStateAction<WorkspaceServer[]>>;
   setWorkspacePanes: React.Dispatch<React.SetStateAction<PaneConfig[]>>;
@@ -36,6 +39,7 @@ export function useConnectionActions({
   hostKeyDecisionRef,
   setNoticeModal,
   resolveServerPassword,
+  requestSecureInput,
   setServers,
   setWorkspaceSessions,
   setWorkspacePanes,
@@ -79,22 +83,53 @@ export function useConnectionActions({
       return;
     }
 
-    const owningSession = workspaceSessions.find(
-      session => session.host === currentPane.host && session.user === currentPane.user
-    );
-    const pw = await resolveServerPassword(
-      owningSession?.id ?? activeServer.id,
-      `Enter password for ${currentPane.user}@${currentPane.host} (leave empty if using SSH Keys):`
-    );
-    if (pw === null) {
-      setWorkspacePanes(prev => prev.map(entry => (
-        entry.id === currentPane.id ? { ...entry, connecting: false, sessionId: entry.connected ? entry.sessionId : undefined } : entry
-      )));
-      return;
+    const owningSession = findSessionForPane(workspaceSessions, currentPane);
+    const serverId = owningSession?.id ?? activeServer.id;
+    let privateKey: string | null = null;
+    let privateKeyPassphrase: string | null = null;
+    try {
+      privateKey = await getServerPrivateKey(serverId);
+      if (privateKey) {
+        privateKeyPassphrase = await requestSecureInput(
+          i18n.t('modal.privateKeyPassphraseTitle'),
+          i18n.t('modal.privateKeyPassphraseMessage', { user: currentPane.user, host: currentPane.host }),
+          '',
+          i18n.t('terminal.connect')
+        );
+        if (privateKeyPassphrase === null) {
+          setWorkspacePanes(prev => prev.map(entry => (
+            entry.id === currentPane.id ? { ...entry, connecting: false, sessionId: entry.connected ? entry.sessionId : undefined } : entry
+          )));
+          return;
+        }
+      }
+    } catch {}
+
+    let pw = '';
+    if (!privateKey) {
+      const resolved = await resolveServerPassword(
+        serverId,
+        i18n.t('modal.serverPasswordMessage', { user: currentPane.user, host: currentPane.host })
+      );
+      if (resolved === null) {
+        setWorkspacePanes(prev => prev.map(entry => (
+          entry.id === currentPane.id ? { ...entry, connecting: false, sessionId: entry.connected ? entry.sessionId : undefined } : entry
+        )));
+        return;
+      }
+      pw = resolved;
     }
 
     try {
-      await sshConnect(sessionId, currentPane.host, currentPanePort, currentPane.user, pw);
+      await sshConnect(
+        sessionId,
+        currentPane.host,
+        currentPanePort,
+        currentPane.user,
+        pw,
+        privateKey ?? undefined,
+        privateKeyPassphrase ?? undefined
+      );
       if (owningSession) {
         setServers(prev => prev.map(entry => entry.id === owningSession.id ? { ...entry, connected: true } : entry));
         setWorkspaceSessions(prev => prev.map(entry => entry.id === owningSession.id ? { ...entry, connected: true } : entry));
@@ -109,7 +144,7 @@ export function useConnectionActions({
       setWorkspacePanes(prev => prev.map(entry => (
         entry.id === currentPane.id ? { ...entry, connecting: false, sessionId: entry.connected ? entry.sessionId : undefined } : entry
       )));
-      setNoticeModal({ title: 'SSH Connection Failed', message: String(e) });
+      setNoticeModal({ title: i18n.t('modal.sshConnectionFailed'), message: formatSshConnectionError(e) });
     }
   };
 
@@ -120,7 +155,7 @@ export function useConnectionActions({
     setWorkspacePanes(prev => prev.map(entry => (
       entry.id === paneId ? { ...entry, connecting: true, sessionId } : entry
     )));
-    const owningSession = workspaceSessions.find(session => session.host === pane.host && session.user === pane.user);
+    const owningSession = findSessionForPane(workspaceSessions, pane);
     const panePort = owningSession?.port ?? activeServer.port;
     const trusted = await ensureTrustedHostKey(pane.host, panePort);
     if (!trusted) {
@@ -130,19 +165,52 @@ export function useConnectionActions({
       return;
     }
 
-    const pw = await resolveServerPassword(
-      owningSession?.id ?? activeServer.id,
-      `Enter password for ${pane.user}@${pane.host} (leave empty if using SSH Keys):`
-    );
-    if (pw === null) {
-      setWorkspacePanes(prev => prev.map(entry => (
-        entry.id === paneId ? { ...entry, connecting: false, sessionId: entry.connected ? entry.sessionId : undefined } : entry
-      )));
-      return;
+    const serverId = owningSession?.id ?? activeServer.id;
+    let privateKey: string | null = null;
+    let privateKeyPassphrase: string | null = null;
+    try {
+      privateKey = await getServerPrivateKey(serverId);
+      if (privateKey) {
+        privateKeyPassphrase = await requestSecureInput(
+          i18n.t('modal.privateKeyPassphraseTitle'),
+          i18n.t('modal.privateKeyPassphraseMessage', { user: pane.user, host: pane.host }),
+          '',
+          i18n.t('terminal.connect')
+        );
+        if (privateKeyPassphrase === null) {
+          setWorkspacePanes(prev => prev.map(entry => (
+            entry.id === paneId ? { ...entry, connecting: false, sessionId: entry.connected ? entry.sessionId : undefined } : entry
+          )));
+          return;
+        }
+      }
+    } catch {}
+
+    let pw = '';
+    if (!privateKey) {
+      const resolved = await resolveServerPassword(
+        serverId,
+        i18n.t('modal.serverPasswordMessage', { user: pane.user, host: pane.host })
+      );
+      if (resolved === null) {
+        setWorkspacePanes(prev => prev.map(entry => (
+          entry.id === paneId ? { ...entry, connecting: false, sessionId: entry.connected ? entry.sessionId : undefined } : entry
+        )));
+        return;
+      }
+      pw = resolved;
     }
 
     try {
-      await sshConnect(sessionId, pane.host, panePort, pane.user, pw);
+      await sshConnect(
+        sessionId,
+        pane.host,
+        panePort,
+        pane.user,
+        pw,
+        privateKey ?? undefined,
+        privateKeyPassphrase ?? undefined
+      );
       if (owningSession) {
         setServers(prev => prev.map(entry => entry.id === owningSession.id ? { ...entry, connected: true } : entry));
         setWorkspaceSessions(prev => prev.map(entry => entry.id === owningSession.id ? { ...entry, connected: true } : entry));
@@ -159,7 +227,7 @@ export function useConnectionActions({
       setWorkspacePanes(prev => prev.map(entry => (
         entry.id === paneId ? { ...entry, connecting: false, sessionId: entry.connected ? entry.sessionId : undefined } : entry
       )));
-      setNoticeModal({ title: 'SSH Connection Failed', message: String(e) });
+      setNoticeModal({ title: i18n.t('modal.sshConnectionFailed'), message: formatSshConnectionError(e) });
     }
   };
 

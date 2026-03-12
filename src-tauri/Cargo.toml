@@ -1,6 +1,6 @@
 [package]
 name = "vibeshell"
-version = "0.1.0"
+version = "0.2.0"
 description = "A modern, AI-first SSH/SFTP terminal"
 authors = ["VibeShell Team"]
 edition = "2021"
@@ -17,7 +17,7 @@ tokio = { version = "1.37.0", features = ["full"] }
 russh = "0.42.0"
 russh-keys = "0.42.0"
 russh-sftp = "2.1.1"
-suppaftp = { version = "5.3.0", features = ["async"] }
+suppaftp = { version = "5.4.0", features = ["async", "async-secure", "async-native-tls"] }
 # lancedb = "0.9.0"  # 等待上游修复 arrow-arith/chrono quarter() 冲突后恢复
 rusqlite = { version = "0.32.0", features = ["bundled"] }  # RAG 持久化临时方案
 keyring = "2.3.0"

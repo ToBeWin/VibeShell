@@ -78,7 +78,7 @@ export function useWorkspaceActions({
 
     const fileSessionId = paneFileSessionId[paneId];
     if (fileSessionId) {
-      remoteFilesDisconnect(paneFileProtocol[paneId] ?? 'ftp', fileSessionId).catch(console.warn);
+      remoteFilesDisconnect(paneFileProtocol[paneId] ?? 'sftp', fileSessionId).catch(console.warn);
     }
 
     const removal = removePaneFromWorkspace(workspacePanes, workspaceSessions, paneId, activePaneId);
@@ -116,6 +116,11 @@ export function useWorkspaceActions({
 
   const selectServerInWorkspace = (server: WorkspaceServer) => {
     setActiveServer(server);
+    setWorkspaceSessions(prevSessions => (
+      prevSessions.some(session => session.id === server.id)
+        ? prevSessions
+        : [...prevSessions, server]
+    ));
     const { pane, session } = selectServerTargets(workspacePanes, workspaceSessions, server);
     if (pane) {
       setActivePaneId(pane.id);
@@ -124,9 +129,7 @@ export function useWorkspaceActions({
       setWorkspacePanes(ensured.panes);
       setActivePaneId(ensured.pane.id);
     }
-    if (session) {
-      setActiveSessionId(session.id);
-    }
+    setActiveSessionId(session?.id ?? server.id);
   };
 
   const handleActivePaneChange = (paneId: string) => {

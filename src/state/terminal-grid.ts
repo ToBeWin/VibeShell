@@ -1,6 +1,27 @@
 import { useEffect, useState } from 'react';
 import { PaneConfig, SplitDirection } from '../components/TerminalGrid';
 
+function arePaneListsEqual(left: PaneConfig[], right: PaneConfig[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((pane, index) => {
+    const other = right[index];
+    return (
+      pane.id === other.id &&
+      pane.serverId === other.serverId &&
+      pane.sessionId === other.sessionId &&
+      pane.sessionKey === other.sessionKey &&
+      pane.label === other.label &&
+      pane.host === other.host &&
+      pane.user === other.user &&
+      pane.connected === other.connected &&
+      pane.connecting === other.connecting
+    );
+  });
+}
+
 interface UseTerminalGridStateOptions {
   defaultPane: PaneConfig;
   availablePanes?: PaneConfig[];
@@ -26,7 +47,7 @@ export function useTerminalGridState({
 
   useEffect(() => {
     if (availablePanes && availablePanes.length > 0) {
-      setPanes(availablePanes);
+      setPanes(prev => (arePaneListsEqual(prev, availablePanes) ? prev : availablePanes));
       setSplit(availablePanes.length > 1 ? prev => (prev === 'none' ? 'horizontal' : prev) : 'none');
     }
   }, [availablePanes]);
@@ -38,22 +59,56 @@ export function useTerminalGridState({
   }, [activePaneId]);
 
   useEffect(() => {
-    setPanes(prev =>
-      prev.map(pane =>
-        pane.id === defaultPane.id
-          ? {
-              ...pane,
-              connected: defaultPane.connected,
-              sessionId: defaultPane.sessionId,
-              sessionKey: defaultPane.sessionKey,
-              label: defaultPane.label,
-              host: defaultPane.host,
-              user: defaultPane.user,
-            }
-          : pane
-      )
-    );
-  }, [defaultPane]);
+    setPanes(prev => {
+      let changed = false;
+      const next = prev.map(pane => {
+        if (pane.id !== defaultPane.id) {
+          return pane;
+        }
+
+        const updatedPane = {
+          ...pane,
+          serverId: defaultPane.serverId,
+          connected: defaultPane.connected,
+          connecting: defaultPane.connecting,
+          sessionId: defaultPane.sessionId,
+          sessionKey: defaultPane.sessionKey,
+          label: defaultPane.label,
+          host: defaultPane.host,
+          user: defaultPane.user,
+        };
+
+        const paneChanged =
+          pane.serverId !== updatedPane.serverId ||
+          pane.connected !== updatedPane.connected ||
+          pane.connecting !== updatedPane.connecting ||
+          pane.sessionId !== updatedPane.sessionId ||
+          pane.sessionKey !== updatedPane.sessionKey ||
+          pane.label !== updatedPane.label ||
+          pane.host !== updatedPane.host ||
+          pane.user !== updatedPane.user;
+
+        if (paneChanged) {
+          changed = true;
+          return updatedPane;
+        }
+
+        return pane;
+      });
+
+      return changed ? next : prev;
+    });
+  }, [
+    defaultPane.connected,
+    defaultPane.connecting,
+    defaultPane.host,
+    defaultPane.id,
+    defaultPane.label,
+    defaultPane.serverId,
+    defaultPane.sessionId,
+    defaultPane.sessionKey,
+    defaultPane.user,
+  ]);
 
   const addPane = (direction: SplitDirection) => {
     if (onCreatePane) {

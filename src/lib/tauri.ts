@@ -3,6 +3,7 @@
  * If running in browser (dev without Tauri), falls back to mocks.
  */
 import { invoke as tauriInvoke, Channel } from '@tauri-apps/api/core';
+import { open as shellOpen } from '@tauri-apps/plugin-shell';
 import { AgentRequest, AgentResponse, HostKeyRecord, HostKeyScanResult, ProviderProfile } from './domain';
 
 const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -14,6 +15,15 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   // Browser-only mock for development
   console.warn(`[mock] invoke: ${cmd}`, args);
   throw new Error(`Not running in Tauri — command '${cmd}' unavailable in browser.`);
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  if (isTauri) {
+    await shellOpen(url);
+    return;
+  }
+
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 // ── Server Config ──────────────────────────────────────────────────
@@ -39,6 +49,18 @@ export const saveServerPassword = (serverId: string, password: string): Promise<
 
 export const getServerPassword = (serverId: string): Promise<string> =>
   invoke<string>('get_server_password', { serverId });
+
+export const deleteServerPassword = (serverId: string): Promise<void> =>
+  invoke('delete_server_password', { serverId });
+
+export const saveServerPrivateKey = (serverId: string, privateKey: string): Promise<void> =>
+  invoke('save_server_private_key', { serverId, privateKey });
+
+export const getServerPrivateKey = (serverId: string): Promise<string> =>
+  invoke<string>('get_server_private_key', { serverId });
+
+export const deleteServerPrivateKey = (serverId: string): Promise<void> =>
+  invoke('delete_server_private_key', { serverId });
 
 export const sshScanHostKey = (host: string, port: number): Promise<HostKeyScanResult> =>
   invoke<HostKeyScanResult>('ssh_scan_host_key', { host, port });
@@ -105,6 +127,9 @@ export const aiChatStreamWithConfig = async (
 export const listOllamaModels = (ollamaUrl: string): Promise<string[]> =>
   invoke<string[]>('list_ollama_models', { ollamaUrl });
 
+export const startOllamaService = (ollamaUrl: string): Promise<string[]> =>
+  invoke<string[]>('start_ollama_service', { ollamaUrl });
+
 export const listAiProviderProfiles = (): Promise<ProviderProfile[]> =>
   invoke<ProviderProfile[]>('list_ai_provider_profiles');
 
@@ -116,8 +141,10 @@ export const runAgentTask = (
 ): Promise<AgentResponse> =>
   invoke<AgentResponse>('run_agent_task', { provider, model, ollamaUrl, request });
 
-// ── FTP ────────────────────────────────────────────────────────────
+// ── Remote Files ───────────────────────────────────────────────────
 export type RemoteFileProtocol = 'ftp' | 'sftp';
+
+export const REMOTE_FILE_PROTOCOLS: readonly RemoteFileProtocol[] = ['sftp'];
 
 export const ftpConnect = (sessionId: string, host: string, port: number, user: string, password: string): Promise<void> =>
   invoke('ftp_connect', { sessionId, host, port, user, password });
@@ -137,9 +164,11 @@ export const remoteFilesConnect = (
   host: string,
   port: number,
   user: string,
-  password: string
+  password: string,
+  privateKey?: string,
+  privateKeyPassphrase?: string
 ): Promise<void> =>
-  invoke('remote_files_connect', { protocol, sessionId, host, port, user, password });
+  invoke('remote_files_connect', { protocol, sessionId, host, port, user, password, privateKey, privateKeyPassphrase });
 
 export const remoteFilesList = (
   protocol: RemoteFileProtocol,
@@ -214,8 +243,16 @@ export const remoteFilesDelete = (
   invoke('remote_files_delete', { protocol, sessionId, path });
 
 // ── SSH ────────────────────────────────────────────────────────────
-export const sshConnect = (sessionId: string, host: string, port: number, user: string, password: string): Promise<void> =>
-  invoke('ssh_connect', { sessionId, host, port, user, password });
+export const sshConnect = (
+  sessionId: string,
+  host: string,
+  port: number,
+  user: string,
+  password: string,
+  privateKey?: string,
+  privateKeyPassphrase?: string
+): Promise<void> =>
+  invoke('ssh_connect', { sessionId, host, port, user, password, privateKey, privateKeyPassphrase });
 
 export const sshWrite = (sessionId: string, data: number[]): Promise<void> =>
   invoke('ssh_write', { sessionId, data });

@@ -1,6 +1,36 @@
 import { useMemo, useState } from 'react';
 import { RemoteFileProtocol } from '../lib/tauri';
 
+export interface PaneFileSnapshot {
+  sessionId: string | null;
+  list: string[];
+  path: string;
+  loading: boolean;
+  error: string;
+  protocol: RemoteFileProtocol;
+  openFilePath: string | null;
+  openFileContent: string;
+  dirty: boolean;
+  saving: boolean;
+  transferRunning: boolean;
+}
+
+export function createDefaultPaneFileSnapshot(protocol: RemoteFileProtocol = 'sftp'): PaneFileSnapshot {
+  return {
+    sessionId: null,
+    list: [],
+    path: '/',
+    loading: false,
+    error: '',
+    protocol,
+    openFilePath: null,
+    openFileContent: '',
+    dirty: false,
+    saving: false,
+    transferRunning: false,
+  };
+}
+
 export interface PaneFileStateValue {
   paneFileSessionId: Record<string, string | null>;
   setPaneFileSessionId: React.Dispatch<React.SetStateAction<Record<string, string | null>>>;
@@ -58,7 +88,7 @@ export function usePaneFileState(activePaneId: string): PaneFileStateValue {
       currentFilePath: paneFilePath[activePaneId] ?? '/',
       currentFileLoading: paneFileLoading[activePaneId] ?? false,
       currentFileError: paneFileError[activePaneId] ?? '',
-      currentFileProtocol: paneFileProtocol[activePaneId] ?? 'ftp',
+  currentFileProtocol: paneFileProtocol[activePaneId] ?? 'sftp',
       currentOpenFilePath: paneOpenFilePath[activePaneId] ?? null,
       currentOpenFileContent: paneOpenFileContent[activePaneId] ?? '',
       currentFileDirty: paneFileDirty[activePaneId] ?? false,

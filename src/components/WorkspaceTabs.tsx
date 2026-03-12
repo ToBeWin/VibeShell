@@ -17,7 +17,8 @@ export function WorkspaceTabs({
   onRemoveSession,
 }: WorkspaceTabsProps) {
   return (
-    <div className="flex items-center gap-2 overflow-x-auto px-4 py-3 border-b border-white/[0.05] bg-[#07070D]/60 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+    <div className="overflow-x-auto border-b border-white/[0.05] bg-[#090a10]/88 px-5 py-2 backdrop-blur-2xl scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+      <div className="flex min-w-max items-center gap-2">
       {sessions.map((session, index) => (
         <div
           key={session.id}
@@ -30,19 +31,19 @@ export function WorkspaceTabs({
               onSelectSession(session.id);
             }
           }}
-          className={`group flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition-all relative ${
+          className={`group relative flex shrink-0 items-center gap-3 rounded-xl border px-3.5 py-2 text-left transition-all ${
             activeSessionId === session.id
-              ? 'border-violet-400/20 bg-violet-500/10 text-white'
-              : 'border-white/[0.06] bg-white/[0.02] text-gray-400 hover:bg-white/[0.05] hover:text-gray-200'
+              ? 'border-cyan-300/10 bg-cyan-400/[0.06] text-white'
+              : 'border-white/[0.06] bg-white/[0.02] text-gray-400 hover:border-white/[0.1] hover:bg-white/[0.04] hover:text-gray-200'
           }`}
         >
-          <div className={`h-2 w-2 rounded-full ${session.connected ? 'bg-green-400' : 'bg-gray-600'}`} />
+          <div className={`h-2.5 w-2.5 rounded-full ${session.connected ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.5)]' : 'bg-gray-600'}`} />
           <div className="min-w-0">
-            <div className="max-w-[180px] truncate text-[12px] font-medium">{session.name}</div>
+            <div className="max-w-[180px] truncate text-[12px] font-semibold tracking-[0.01em]">{session.name}</div>
             <div className="max-w-[180px] truncate text-[10px] font-mono text-gray-500">{session.user}@{session.host}</div>
           </div>
           {index < 9 && (
-            <kbd className="text-[9px] text-gray-600 bg-white/[0.03] px-1 py-0.5 rounded border border-white/[0.06]">
+            <kbd className="rounded-md border border-white/[0.06] bg-black/20 px-1.5 py-0.5 text-[9px] text-gray-600">
               ⌘{index + 1}
             </kbd>
           )}
@@ -59,10 +60,11 @@ export function WorkspaceTabs({
       ))}
       <button
         onClick={onAddSession}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] text-gray-500 transition-all hover:bg-white/[0.05] hover:text-white"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-dashed border-cyan-300/12 bg-cyan-400/[0.03] text-gray-500 transition-all hover:border-cyan-300/25 hover:bg-cyan-400/[0.08] hover:text-white"
       >
         <Plus size={16} />
       </button>
+      </div>
     </div>
   );
 }

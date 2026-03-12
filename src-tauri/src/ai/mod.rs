@@ -46,7 +46,8 @@ impl AiProvider {
             | ProviderKind::MiniMax
             | ProviderKind::Glm
             | ProviderKind::DeepSeek
-            | ProviderKind::Qwen => AiProvider::OpenAI,
+            | ProviderKind::Qwen
+            | ProviderKind::Kimi => AiProvider::OpenAI,
             ProviderKind::Ollama => AiProvider::Ollama,
         }
     }
@@ -70,6 +71,14 @@ pub async fn chat_stream(
         AiProvider::OpenAI => chat_openai_stream(config, messages, on_chunk).await,
         AiProvider::Anthropic => chat_anthropic_stream(config, messages, on_chunk).await,
     }
+}
+
+fn resolve_provider_base_url(config: &AiConfig, fallback: &str) -> String {
+    let value = config.ollama_base_url.trim();
+    if value.is_empty() {
+        return fallback.to_string();
+    }
+    value.trim_end_matches('/').to_string()
 }
 
 /// List locally available Ollama models
@@ -226,8 +235,10 @@ async fn chat_openai(config: &AiConfig, messages: Vec<ChatMessage>) -> Result<St
         temperature: 0.7,
     };
 
+    let base_url = resolve_provider_base_url(config, "https://api.openai.com/v1");
+    let endpoint = format!("{}/chat/completions", base_url);
     let response = client
-        .post("https://api.openai.com/v1/chat/completions")
+        .post(endpoint)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -296,8 +307,10 @@ async fn chat_openai_stream(
         stream: true,
     };
 
+    let base_url = resolve_provider_base_url(config, "https://api.openai.com/v1");
+    let endpoint = format!("{}/chat/completions", base_url);
     let mut response = client
-        .post("https://api.openai.com/v1/chat/completions")
+        .post(endpoint)
         .header("Authorization", format!("Bearer {}", api_key))
         .header("Content-Type", "application/json")
         .json(&body)
@@ -376,8 +389,10 @@ async fn chat_anthropic(config: &AiConfig, messages: Vec<ChatMessage>) -> Result
         system: system_message,
     };
 
+    let base_url = resolve_provider_base_url(config, "https://api.anthropic.com");
+    let endpoint = format!("{}/v1/messages", base_url);
     let response = client
-        .post("https://api.anthropic.com/v1/messages")
+        .post(endpoint)
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .header("Content-Type", "application/json")
@@ -457,8 +472,10 @@ async fn chat_anthropic_stream(
         stream: true,
     };
 
+    let base_url = resolve_provider_base_url(config, "https://api.anthropic.com");
+    let endpoint = format!("{}/v1/messages", base_url);
     let mut response = client
-        .post("https://api.anthropic.com/v1/messages")
+        .post(endpoint)
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .header("Content-Type", "application/json")

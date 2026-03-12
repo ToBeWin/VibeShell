@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Settings, Eye, EyeOff, X, Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { ProviderProfile, ProviderKind } from '../lib/domain';
+import { listOllamaModels, startOllamaService } from '../lib/tauri';
 
 interface AiProviderSettingsProps {
   onClose: () => void;
+  providerProfiles?: ProviderProfile[];
 }
 
 type AiProvider = 'ollama' | 'openai' | 'anthropic';
@@ -16,7 +20,49 @@ interface AiConfig {
   maxContextTokens: number;
 }
 
-export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
+interface ProviderOption {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  transport: AiProvider;
+  baseUrl: string;
+  models: string[];
+  allowPresetModels: boolean;
+}
+
+const DEFAULT_MODEL_BY_KIND: Record<ProviderKind, string[]> = {
+  ollama: ['llama3', 'llama3:70b', 'codellama', 'mistral', 'phi3'],
+  openai: [],
+  anthropic: [],
+  gemini: [],
+  minimax: [],
+  glm: [],
+  deepseek: [],
+  qwen: [],
+  kimi: [],
+};
+
+const iconByKind: Record<ProviderKind, string> = {
+  ollama: '🦙',
+  openai: '🤖',
+  anthropic: '🧠',
+  gemini: '✨',
+  minimax: '⚡',
+  glm: '🧬',
+  deepseek: '🔍',
+  qwen: '🌊',
+  kimi: '🌙',
+};
+
+const transportByKind = (kind: ProviderKind): AiProvider => {
+  if (kind === 'ollama') return 'ollama';
+  if (kind === 'anthropic') return 'anthropic';
+  return 'openai';
+};
+
+export function AiProviderSettings({ onClose, providerProfiles = [] }: AiProviderSettingsProps) {
+  const { t } = useTranslation();
   const [config, setConfig] = useState<AiConfig>(() => {
     const saved = localStorage.getItem('aiConfig');
     return saved ? JSON.parse(saved) : {
@@ -30,11 +76,47 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
   
   const [showApiKey, setShowApiKey] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const canSave = !saving && Boolean(config.model.trim());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadOllamaModels = async () => {
+      try {
+        const models = await listOllamaModels(config.ollamaBaseUrl);
+        if (!cancelled) {
+          setOllamaModels(models);
+        }
+        return;
+      } catch {}
+
+      try {
+        const models = await startOllamaService(config.ollamaBaseUrl);
+        if (!cancelled) {
+          setOllamaModels(models);
+        }
+      } catch {
+        if (!cancelled) {
+          setOllamaModels([]);
+        }
+      }
+    };
+
+    if (config.provider === 'ollama') {
+      loadOllamaModels();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [config.provider, config.ollamaBaseUrl]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       localStorage.setItem('aiConfig', JSON.stringify(config));
+      window.dispatchEvent(new CustomEvent('ai-config-updated', { detail: config }));
       // Here you could also call a Tauri command to save to backend
       setTimeout(() => {
         setSaving(false);
@@ -46,31 +128,63 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
     }
   };
 
-  const providerOptions = [
+  const fallbackProviderOptions: ProviderOption[] = [
     {
-      id: 'ollama' as AiProvider,
+      id: 'ollama',
       name: 'Ollama',
-      description: '本地运行的开源模型',
-      icon: '🦙',
-      models: ['llama3', 'llama3:70b', 'codellama', 'mistral', 'phi3'],
+      description: t('aiProviderSettings.description.ollama'),
+      icon: iconByKind.ollama,
+      transport: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      models: DEFAULT_MODEL_BY_KIND.ollama,
+      allowPresetModels: true,
     },
     {
-      id: 'openai' as AiProvider,
+      id: 'openai',
       name: 'OpenAI',
-      description: 'GPT-4, GPT-3.5 等商业模型',
-      icon: '🤖',
-      models: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo', 'gpt-4o'],
+      description: t('aiProviderSettings.description.openai'),
+      icon: iconByKind.openai,
+      transport: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      models: DEFAULT_MODEL_BY_KIND.openai,
+      allowPresetModels: false,
     },
     {
-      id: 'anthropic' as AiProvider,
+      id: 'anthropic',
       name: 'Anthropic',
-      description: 'Claude 系列模型',
-      icon: '🧠',
-      models: ['claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'],
+      description: t('aiProviderSettings.description.anthropic'),
+      icon: iconByKind.anthropic,
+      transport: 'anthropic',
+      baseUrl: 'https://api.anthropic.com',
+      models: DEFAULT_MODEL_BY_KIND.anthropic,
+      allowPresetModels: false,
     },
   ];
 
-  const selectedProvider = providerOptions.find(p => p.id === config.provider);
+  const providerOptions: ProviderOption[] = useMemo(() => (providerProfiles.length > 0
+    ? providerProfiles.map((profile) => ({
+      id: profile.id,
+      name: profile.label,
+      description: t(`aiProviderSettings.description.${profile.kind}`, { defaultValue: t('aiProviderSettings.description.custom') }),
+      icon: iconByKind[profile.kind] ?? '🤖',
+      transport: transportByKind(profile.kind),
+      baseUrl: profile.baseUrl,
+      models: profile.kind === 'ollama'
+        ? ollamaModels
+        : DEFAULT_MODEL_BY_KIND[profile.kind] ?? [],
+      allowPresetModels: profile.kind === 'ollama',
+    }))
+    : fallbackProviderOptions.map((provider) => (
+      provider.transport === 'ollama'
+        ? { ...provider, models: ollamaModels }
+        : provider
+    ))), [fallbackProviderOptions, ollamaModels, providerProfiles, t]);
+
+  const selectedProvider = providerOptions.find(
+    p => p.transport === config.provider && p.baseUrl === config.ollamaBaseUrl
+  ) ?? providerOptions.find(
+    p => p.transport === config.provider
+  );
 
   return (
     <motion.div
@@ -94,8 +208,8 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
               <Settings size={20} className="text-violet-400" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-white">AI 提供商设置</h2>
-              <p className="text-sm text-gray-500 mt-1">配置 AI 模型和 API 密钥</p>
+              <h2 className="text-lg font-semibold text-white">{t('aiProviderSettings.title')}</h2>
+              <p className="text-sm text-gray-500 mt-1">{t('aiProviderSettings.subtitle')}</p>
             </div>
           </div>
           <button
@@ -111,7 +225,7 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
           {/* Provider Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-3">
-              选择 AI 提供商
+              {t('aiProviderSettings.providerLabel')}
             </label>
             <div className="grid gap-3">
               {providerOptions.map((provider) => (
@@ -119,11 +233,12 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
                   key={provider.id}
                   onClick={() => setConfig(prev => ({ 
                     ...prev, 
-                    provider: provider.id,
-                    model: provider.models[0] // Reset to first model
+                    provider: provider.transport,
+                    model: provider.allowPresetModels ? (prev.provider === provider.transport && prev.ollamaBaseUrl === provider.baseUrl ? prev.model : (provider.models[0] ?? '')) : '',
+                    ollamaBaseUrl: provider.baseUrl,
                   }))}
                   className={`p-4 rounded-xl border text-left transition-all ${
-                    config.provider === provider.id
+                    selectedProvider?.id === provider.id
                       ? 'border-violet-500/50 bg-violet-500/10'
                       : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.04]'
                   }`}
@@ -134,7 +249,7 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
                       <div className="font-medium text-white">{provider.name}</div>
                       <div className="text-sm text-gray-400 mt-1">{provider.description}</div>
                     </div>
-                    {config.provider === provider.id && (
+                    {selectedProvider?.id === provider.id && (
                       <Check size={20} className="text-violet-400" />
                     )}
                   </div>
@@ -145,21 +260,35 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
 
           {/* Model Selection */}
           {selectedProvider && (
-            <div>
+            <div className="space-y-3">
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                选择模型
+                {t('aiProviderSettings.modelLabel')}
               </label>
-              <select
+              {selectedProvider.allowPresetModels && selectedProvider.models.length > 0 && (
+                <select
+                  value={selectedProvider.models.includes(config.model) ? config.model : ''}
+                  onChange={(e) => setConfig(prev => ({ ...prev, model: e.target.value }))}
+                  className="w-full px-4 py-3 bg-[#06060C] border border-white/10 rounded-xl text-white focus:outline-none focus:border-violet-500"
+                >
+                  {!selectedProvider.models.includes(config.model) && (
+                    <option value="">
+                      {t('aiProviderSettings.customModelPlaceholder')}
+                    </option>
+                  )}
+                  {selectedProvider.models.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <input
+                type="text"
                 value={config.model}
                 onChange={(e) => setConfig(prev => ({ ...prev, model: e.target.value }))}
-                className="w-full px-4 py-3 bg-[#06060C] border border-white/10 rounded-xl text-white focus:outline-none focus:border-violet-500"
-              >
-                {selectedProvider.models.map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
-              </select>
+                placeholder={t('aiProviderSettings.customModelPlaceholder')}
+                className="w-full px-4 py-3 bg-[#06060C] border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-violet-500"
+              />
             </div>
           )}
 
@@ -167,7 +296,7 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
           {config.provider === 'ollama' && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Ollama 服务器地址
+                {t('aiProviderSettings.ollamaUrlLabel')}
               </label>
               <input
                 type="text"
@@ -179,18 +308,38 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
             </div>
           )}
 
+          {(config.provider === 'openai' || config.provider === 'anthropic') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                {t('aiProviderSettings.apiBaseUrlLabel')}
+              </label>
+              <input
+                type="text"
+                value={config.ollamaBaseUrl}
+                onChange={(e) => setConfig(prev => ({ ...prev, ollamaBaseUrl: e.target.value }))}
+                placeholder={config.provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.anthropic.com'}
+                className="w-full px-4 py-3 bg-[#06060C] border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-violet-500"
+              />
+              {config.provider === 'openai' && (
+                <p className="text-xs text-gray-500 mt-2">
+                  {t('aiProviderSettings.apiBaseUrlHint')}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* API Key */}
           {(config.provider === 'openai' || config.provider === 'anthropic') && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                API 密钥
+                {t('aiProviderSettings.apiKeyLabel')}
               </label>
               <div className="relative">
                 <input
                   type={showApiKey ? 'text' : 'password'}
                   value={config.apiKey || ''}
                   onChange={(e) => setConfig(prev => ({ ...prev, apiKey: e.target.value }))}
-                  placeholder={`输入 ${selectedProvider?.name} API 密钥`}
+                  placeholder={t('aiProviderSettings.apiKeyPlaceholder', { provider: selectedProvider?.name ?? 'API' })}
                   className="w-full px-4 py-3 pr-12 bg-[#06060C] border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-violet-500"
                 />
                 <button
@@ -202,8 +351,8 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
                 </button>
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                {config.provider === 'openai' && '从 https://platform.openai.com/api-keys 获取'}
-                {config.provider === 'anthropic' && '从 https://console.anthropic.com/ 获取'}
+                {config.provider === 'openai' && t('aiProviderSettings.apiKeyHintOpenai')}
+                {config.provider === 'anthropic' && t('aiProviderSettings.apiKeyHintAnthropic')}
               </p>
             </div>
           )}
@@ -211,7 +360,7 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
           {/* Max Context Tokens */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              最大上下文长度
+              {t('aiProviderSettings.maxContextLabel')}
             </label>
             <input
               type="number"
@@ -223,7 +372,7 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
               className="w-full px-4 py-3 bg-[#06060C] border border-white/10 rounded-xl text-white focus:outline-none focus:border-violet-500"
             />
             <p className="text-xs text-gray-500 mt-2">
-              控制 AI 可以处理的上下文长度，影响对话记忆和响应质量
+              {t('aiProviderSettings.maxContextHint')}
             </p>
           </div>
         </div>
@@ -234,20 +383,20 @@ export function AiProviderSettings({ onClose }: AiProviderSettingsProps) {
             onClick={onClose}
             className="flex-1 py-3 rounded-xl text-sm font-medium text-gray-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
           >
-            取消
+            {t('aiProviderSettings.cancel')}
           </button>
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={!canSave}
             className="flex-1 py-3 rounded-xl text-sm font-medium text-white bg-violet-600 hover:bg-violet-500 disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2"
           >
             {saving ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                保存中...
+                {t('aiProviderSettings.saving')}
               </>
             ) : (
-              '保存设置'
+              t('aiProviderSettings.save')
             )}
           </button>
         </div>

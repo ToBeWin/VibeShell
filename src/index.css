@@ -3,7 +3,135 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --app-body-bg: #0e0e11;
+    --app-body-fg: #d1d5db;
+    --app-shell-bg: #060609;
+    --app-shell-glow: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(100, 40, 200, 0.07), transparent);
+    --terminal-font-family: "JetBrains Mono", monospace;
+    --panel-bg: rgba(9, 10, 16, 0.88);
+    --panel-border: rgba(255, 255, 255, 0.06);
+    --panel-strong-border: rgba(125, 211, 252, 0.16);
+    --panel-accent-bg: rgba(34, 211, 238, 0.1);
+    --panel-accent-text: #d8fbff;
+  }
+
+  :root[data-theme='midnight'] {
+    --app-body-bg: #07101b;
+    --app-body-fg: #d7e4f5;
+    --app-shell-bg: #040912;
+    --app-shell-glow: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(56, 189, 248, 0.12), transparent);
+    --panel-bg: rgba(7, 16, 27, 0.88);
+    --panel-border: rgba(148, 163, 184, 0.12);
+    --panel-strong-border: rgba(56, 189, 248, 0.2);
+    --panel-accent-bg: rgba(56, 189, 248, 0.12);
+    --panel-accent-text: #d6f5ff;
+  }
+
+  :root[data-theme='ocean'] {
+    --app-body-bg: #071417;
+    --app-body-fg: #d5ecea;
+    --app-shell-bg: #041113;
+    --app-shell-glow: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(34, 197, 94, 0.09), transparent);
+    --panel-bg: rgba(7, 20, 23, 0.9);
+    --panel-border: rgba(45, 212, 191, 0.12);
+    --panel-strong-border: rgba(45, 212, 191, 0.22);
+    --panel-accent-bg: rgba(45, 212, 191, 0.12);
+    --panel-accent-text: #d8fff7;
+  }
+
+  html {
+    background: var(--app-body-bg);
+  }
+
   body {
-    @apply bg-[#0E0E11] text-gray-300;
+    background: var(--app-body-bg);
+    color: var(--app-body-fg);
+    @apply transition-colors duration-300;
+  }
+}
+
+@layer components {
+  .ai-markdown {
+    @apply text-[13px] leading-6 text-gray-100;
+  }
+
+  .ai-markdown > * + * {
+    @apply mt-2.5;
+  }
+
+  .ai-markdown h1,
+  .ai-markdown h2,
+  .ai-markdown h3,
+  .ai-markdown h4 {
+    @apply font-semibold leading-snug text-white;
+  }
+
+  .ai-markdown h1 {
+    @apply text-lg;
+  }
+
+  .ai-markdown h2 {
+    @apply text-base;
+  }
+
+  .ai-markdown h3 {
+    @apply text-sm;
+  }
+
+  .ai-markdown p {
+    @apply text-gray-100;
+  }
+
+  .ai-markdown ul {
+    @apply list-disc pl-5 space-y-1;
+  }
+
+  .ai-markdown ol {
+    @apply list-decimal pl-5 space-y-1;
+  }
+
+  .ai-markdown li {
+    @apply mt-0;
+  }
+
+  .ai-markdown li > ul,
+  .ai-markdown li > ol {
+    @apply mt-1;
+  }
+
+  .ai-markdown blockquote {
+    @apply border-l-2 border-violet-400/40 pl-3 text-gray-300;
+  }
+
+  .ai-markdown a {
+    @apply text-cyan-200 underline underline-offset-2;
+  }
+
+  .ai-markdown hr {
+    @apply border-white/[0.08];
+  }
+
+  .ai-markdown pre {
+    @apply my-3;
+  }
+
+  .ai-markdown table {
+    table-layout: auto;
+  }
+
+  .ai-markdown thead th:first-child,
+  .ai-markdown tbody td:first-child {
+    min-width: 140px;
+  }
+
+  .ai-markdown thead th:nth-child(2),
+  .ai-markdown tbody td:nth-child(2) {
+    min-width: 120px;
+  }
+
+  .ai-markdown thead th:nth-child(3),
+  .ai-markdown tbody td:nth-child(3) {
+    min-width: 180px;
   }
 }

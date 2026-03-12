@@ -56,6 +56,34 @@ impl SecureStorage {
             .map_err(|e| format!("Failed to get password: {}", e))
     }
 
+    pub fn delete_password(server_id: &str) -> Result<(), String> {
+        let entry = Entry::new("com.vibeshell.dev", server_id)
+            .map_err(|e| format!("Keyring error: {}", e))?;
+        entry.delete_password()
+            .map_err(|e| format!("Failed to delete password: {}", e))
+    }
+
+    pub fn save_private_key(server_id: &str, private_key: &str) -> Result<(), String> {
+        let entry = Entry::new("com.vibeshell.dev", &format!("{}_key", server_id))
+            .map_err(|e| format!("Keyring error: {}", e))?;
+        entry.set_password(private_key)
+            .map_err(|e| format!("Failed to set private key: {}", e))
+    }
+
+    pub fn get_private_key(server_id: &str) -> Result<String, String> {
+        let entry = Entry::new("com.vibeshell.dev", &format!("{}_key", server_id))
+            .map_err(|e| format!("Keyring error: {}", e))?;
+        entry.get_password()
+            .map_err(|e| format!("Failed to get private key: {}", e))
+    }
+
+    pub fn delete_private_key(server_id: &str) -> Result<(), String> {
+        let entry = Entry::new("com.vibeshell.dev", &format!("{}_key", server_id))
+            .map_err(|e| format!("Keyring error: {}", e))?;
+        entry.delete_password()
+            .map_err(|e| format!("Failed to delete private key: {}", e))
+    }
+
     pub fn save_servers(servers: &Vec<ServerConfig>) -> Result<(), String> {
         let config_path = Self::vibe_dir()?.join("servers.json");
         let json = serde_json::to_string_pretty(servers).map_err(|e| e.to_string())?;

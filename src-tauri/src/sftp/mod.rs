@@ -41,7 +41,14 @@ pub struct SftpClient {
 }
 
 impl SftpClient {
-    pub async fn connect(host: &str, port: u16, user: &str, password: &str) -> Result<Self, String> {
+    pub async fn connect(
+        host: &str,
+        port: u16,
+        user: &str,
+        password: &str,
+        private_key: Option<&str>,
+        private_key_passphrase: Option<&str>,
+    ) -> Result<Self, String> {
         let addr = format!("{}:{}", host, port);
         let socket = TcpStream::connect(&addr)
             .await
@@ -63,6 +70,16 @@ impl SftpClient {
             .map_err(|e| format!("SFTP handshake failed: {}", e))?;
 
         let mut authed = false;
+
+        if let Some(key_data) = private_key {
+            let key_pair = russh_keys::decode_secret_key(key_data, private_key_passphrase)
+                .map_err(|e| format!("SFTP private key parse failed: {}", e))?;
+            if let Ok(success) = session.authenticate_publickey(user, Arc::new(key_pair)).await {
+                if success {
+                    authed = true;
+                }
+            }
+        }
 
         if let Some(home_dir) = dirs::home_dir() {
             let keys = vec![

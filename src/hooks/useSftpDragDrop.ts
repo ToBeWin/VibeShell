@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { formatRemoteFileError } from '../state/file-actions';
 
 interface UploadProgress {
   fileName: string;
@@ -15,6 +16,23 @@ interface DragDropState {
 }
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
+
+export function formatSftpUploadError(error: unknown, remotePath: string): string {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  let friendlyMessage = formatRemoteFileError('sftp', 'upload', error);
+
+  if (errorMessage.includes('permission') || errorMessage.includes('Permission denied')) {
+    friendlyMessage = `Permission denied: Cannot upload to ${remotePath}. Check server permissions.`;
+  } else if (errorMessage.includes('network') || errorMessage.includes('connection')) {
+    friendlyMessage = 'Network error: Connection lost during upload. Please try again.';
+  } else if (errorMessage.includes('No space')) {
+    friendlyMessage = 'Server storage full: Cannot upload the selected file.';
+  } else if (errorMessage.includes('Session not found')) {
+    friendlyMessage = 'SFTP session expired. Please reconnect and try again.';
+  }
+
+  return friendlyMessage;
+}
 
 export function useSftpDragDrop(sessionId: string | null, currentPath: string) {
   const [state, setState] = useState<DragDropState>({
@@ -98,19 +116,7 @@ export function useSftpDragDrop(sessionId: string | null, currentPath: string) {
       }, 2000);
 
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      // Provide user-friendly error messages
-      let friendlyMessage = errorMessage;
-      if (errorMessage.includes('permission') || errorMessage.includes('Permission denied')) {
-        friendlyMessage = `Permission denied: Cannot upload to ${remotePath}. Check server permissions.`;
-      } else if (errorMessage.includes('network') || errorMessage.includes('connection')) {
-        friendlyMessage = `Network error: Connection lost during upload. Please try again.`;
-      } else if (errorMessage.includes('No space')) {
-        friendlyMessage = `Server storage full: Cannot upload ${file.name}.`;
-      } else if (errorMessage.includes('Session not found')) {
-        friendlyMessage = `SFTP session expired. Please reconnect and try again.`;
-      }
+      const friendlyMessage = formatSftpUploadError(error, remotePath);
       
       setState(prev => {
         const newProgress = new Map(prev.uploadProgress);
@@ -138,7 +144,6 @@ export function useSftpDragDrop(sessionId: string | null, currentPath: string) {
     setState(prev => ({ ...prev, isDragging: false }));
 
     if (!sessionId) {
-      console.error('No active SFTP session');
       return;
     }
 
@@ -169,9 +174,7 @@ export function useSftpDragDrop(sessionId: string | null, currentPath: string) {
       const remotePath = `${currentPath}/${file.name}`.replace('//', '/');
       try {
         await uploadFile(file, remotePath);
-      } catch (error) {
-        console.error(`Failed to upload ${file.name}:`, error);
-      }
+      } catch {}
     }
   }, [sessionId, currentPath, uploadFile]);
 

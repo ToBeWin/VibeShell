@@ -8,7 +8,8 @@ export type ProviderKind =
   | 'minimax'
   | 'glm'
   | 'deepseek'
-  | 'qwen';
+  | 'qwen'
+  | 'kimi';
 
 export interface ProviderProfile {
   id: string;
@@ -50,6 +51,8 @@ export interface SessionContext {
   host?: string;
   user?: string;
   cwd?: string;
+  filePath?: string;
+  contextKind?: 'terminal' | 'files' | 'workspace';
   selectedText?: string;
   recentCommands: string[];
   recentOutput: string[];

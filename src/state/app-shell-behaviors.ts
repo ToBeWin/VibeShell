@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { SessionContext } from '../lib/domain';
 import { PaneConfig } from '../components/TerminalGrid';
-import { WorkspaceServer } from './workspace';
+import { findSessionForPane, WorkspaceServer } from './workspace';
 
 interface UseAppShellBehaviorsOptions {
   zenMode: boolean;
@@ -12,7 +12,18 @@ interface UseAppShellBehaviorsOptions {
   workspaceSessions: WorkspaceServer[];
   currentCommandHistory: string[];
   currentRagContext: string[];
+  currentFileSessionId: string | null;
+  currentFilePath: string;
+  currentOpenFilePath: string | null;
   recordTerminalLine: (paneId: string, line: string) => void;
+}
+
+export function resolveCurrentPanePort(
+  currentPane: PaneConfig,
+  workspaceSessions: WorkspaceServer[],
+  activeServer: WorkspaceServer
+) {
+  return findSessionForPane(workspaceSessions, currentPane)?.port ?? activeServer.port;
 }
 
 export function useAppShellBehaviors({
@@ -24,6 +35,9 @@ export function useAppShellBehaviors({
   workspaceSessions,
   currentCommandHistory,
   currentRagContext,
+  currentFileSessionId,
+  currentFilePath,
+  currentOpenFilePath,
   recordTerminalLine,
 }: UseAppShellBehaviorsOptions) {
   const handleTerminalLine = useCallback((line: string) => {
@@ -40,12 +54,10 @@ export function useAppShellBehaviors({
     }
   }, [setZenMode, zenMode]);
 
-  const owningSessionForCurrentPane = useMemo(
-    () => workspaceSessions.find(session => session.host === currentPane.host && session.user === currentPane.user),
-    [currentPane.host, currentPane.user, workspaceSessions]
+  const currentPanePort = useMemo(
+    () => resolveCurrentPanePort(currentPane, workspaceSessions, activeServer),
+    [activeServer, currentPane, workspaceSessions]
   );
-
-  const currentPanePort = owningSessionForCurrentPane?.port ?? activeServer.port;
 
   const sessionContext: SessionContext = useMemo(() => ({
     sessionId: currentPane.sessionId,
@@ -53,10 +65,19 @@ export function useAppShellBehaviors({
     host: currentPane.host,
     user: currentPane.user,
     cwd: '~',
+    filePath: currentOpenFilePath ?? currentFilePath,
+    contextKind: currentPane.sessionId
+      ? 'terminal'
+      : currentFileSessionId
+        ? 'files'
+        : 'workspace',
     recentCommands: currentCommandHistory,
     recentOutput: currentRagContext,
   }), [
     currentCommandHistory,
+    currentFilePath,
+    currentFileSessionId,
+    currentOpenFilePath,
     currentPane.host,
     currentPane.id,
     currentPane.sessionId,

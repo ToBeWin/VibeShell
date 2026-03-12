@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Plus, Trash2, GripVertical, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { ServerGroup } from '../hooks/useServerGroups';
+import { ConfirmModal } from './DialogModals';
 
 interface GroupManagementModalProps {
   groups: ServerGroup[];
@@ -18,9 +20,11 @@ export function GroupManagementModal({
   onReorderGroups: _onReorderGroups,
   onClose,
 }: GroupManagementModalProps) {
+  const { t } = useTranslation();
   const [editingGroup, setEditingGroup] = useState<ServerGroup | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupIcon, setNewGroupIcon] = useState('');
+  const [pendingDeleteGroup, setPendingDeleteGroup] = useState<ServerGroup | null>(null);
 
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return;
@@ -46,9 +50,7 @@ export function GroupManagementModal({
   };
 
   const handleDeleteGroup = async (id: string) => {
-    if (confirm('确定要删除这个分组吗？分组中的服务器不会被删除。')) {
-      await onDeleteGroup(id);
-    }
+    await onDeleteGroup(id);
   };
 
   return (
@@ -64,13 +66,13 @@ export function GroupManagementModal({
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.92, y: 16 }}
         transition={{ type: 'spring', stiffness: 360, damping: 36 }}
-        className="w-[500px] max-h-[600px] bg-[#0D0D14] border border-white/10 rounded-3xl shadow-[0_60px_120px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+        className="w-[500px] max-h-[600px] rounded-3xl shadow-[0_60px_120px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col"
+        style={{ background: 'var(--panel-bg)', border: '1px solid var(--panel-border)' }}
       >
-        {/* Header */}
         <div className="px-7 pt-7 pb-5 border-b border-white/5 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-white">管理分组</h2>
-            <p className="text-sm text-gray-500 mt-1">创建、编辑和组织服务器分组</p>
+            <h2 className="text-lg font-semibold text-white">{t('groupManagement.title')}</h2>
+            <p className="text-sm text-gray-500 mt-1">{t('groupManagement.subtitle')}</p>
           </div>
           <button
             onClick={onClose}
@@ -80,7 +82,6 @@ export function GroupManagementModal({
           </button>
         </div>
 
-        {/* Groups List */}
         <div className="flex-1 overflow-y-auto px-7 py-6 space-y-2">
           {groups.map((group) => (
             <div
@@ -95,27 +96,27 @@ export function GroupManagementModal({
                       type="text"
                       value={editingGroup.icon || ''}
                       onChange={(e) => setEditingGroup({ ...editingGroup, icon: e.target.value })}
-                      placeholder="图标"
+                      placeholder={t('groupManagement.iconPlaceholder')}
                       className="w-16 px-2 py-1 bg-[#06060C] border border-white/10 rounded text-xs text-white"
                     />
                     <input
                       type="text"
                       value={editingGroup.name}
                       onChange={(e) => setEditingGroup({ ...editingGroup, name: e.target.value })}
-                      placeholder="分组名称"
+                      placeholder={t('groupManagement.namePlaceholder')}
                       className="flex-1 px-2 py-1 bg-[#06060C] border border-white/10 rounded text-xs text-white"
                     />
                     <button
                       onClick={() => handleUpdateGroup(editingGroup)}
                       className="px-3 py-1 bg-violet-600 text-white text-xs rounded hover:bg-violet-500"
                     >
-                      保存
+                      {t('groupManagement.save')}
                     </button>
                     <button
                       onClick={() => setEditingGroup(null)}
                       className="px-3 py-1 bg-white/5 text-gray-400 text-xs rounded hover:bg-white/10"
                     >
-                      取消
+                      {t('groupManagement.cancel')}
                     </button>
                   </div>
                 ) : (
@@ -135,7 +136,7 @@ export function GroupManagementModal({
                     <Plus size={14} />
                   </button>
                   <button
-                    onClick={() => handleDeleteGroup(group.id)}
+                    onClick={() => setPendingDeleteGroup(group)}
                     className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
                   >
                     <Trash2 size={14} />
@@ -146,14 +147,13 @@ export function GroupManagementModal({
           ))}
         </div>
 
-        {/* Create New Group */}
         <div className="px-7 pb-7 border-t border-white/5 pt-5">
           <div className="flex gap-2">
             <input
               type="text"
               value={newGroupIcon}
               onChange={(e) => setNewGroupIcon(e.target.value)}
-              placeholder="图标 (emoji)"
+              placeholder={t('groupManagement.newIconPlaceholder')}
               className="w-20 px-3 py-2.5 bg-[#06060C] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-violet-500"
             />
             <input
@@ -161,7 +161,7 @@ export function GroupManagementModal({
               value={newGroupName}
               onChange={(e) => setNewGroupName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()}
-              placeholder="新分组名称"
+              placeholder={t('groupManagement.newNamePlaceholder')}
               className="flex-1 px-3 py-2.5 bg-[#06060C] border border-white/10 rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-violet-500"
             />
             <button
@@ -173,6 +173,20 @@ export function GroupManagementModal({
             </button>
           </div>
         </div>
+        {pendingDeleteGroup && (
+          <ConfirmModal
+            title={t('groupManagement.deleteTitle')}
+            message={t('groupManagement.deleteMessage', { name: pendingDeleteGroup.name })}
+            confirmLabel={t('groupManagement.deleteConfirm')}
+            cancelLabel={t('groupManagement.cancel')}
+            onConfirm={async () => {
+              const group = pendingDeleteGroup;
+              setPendingDeleteGroup(null);
+              await handleDeleteGroup(group.id);
+            }}
+            onCancel={() => setPendingDeleteGroup(null)}
+          />
+        )}
       </motion.div>
     </motion.div>
   );

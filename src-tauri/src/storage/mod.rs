@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::fs as async_fs;
+use uuid::Uuid;
 
 pub struct StorageService {
     base_path: PathBuf,
@@ -28,9 +29,19 @@ impl StorageService {
     pub async fn write_json<T: Serialize>(&self, path: &Path, data: &T) -> Result<(), String> {
         let json = serde_json::to_string_pretty(data)
             .map_err(|e| format!("Failed to serialize data: {}", e))?;
+
+        if let Some(parent) = path.parent() {
+            async_fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create parent directory: {}", e))?;
+        }
         
         // Atomic write: write to temp file, then rename
-        let temp_path = path.with_extension("tmp");
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or("Failed to derive file name for temp file")?;
+        let temp_path = path.with_file_name(format!("{file_name}.{}.tmp", Uuid::new_v4()));
         async_fs::write(&temp_path, json)
             .await
             .map_err(|e| format!("Failed to write temp file: {}", e))?;
@@ -100,5 +111,42 @@ impl StorageService {
 
     pub fn get_base_path(&self) -> &Path {
         &self.base_path
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StorageService;
+    use serde::Serialize;
+    use uuid::Uuid;
+
+    #[derive(Serialize)]
+    struct TestPayload {
+        value: &'static str,
+    }
+
+    #[tokio::test]
+    async fn write_json_creates_parent_directories_and_replaces_target() {
+        let temp_root = std::env::temp_dir().join(format!("vibeshell-storage-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_root).expect("temp root");
+
+        let storage = StorageService {
+            base_path: temp_root.clone(),
+        };
+        let target = temp_root.join("nested").join("workspace.json");
+
+        storage
+            .write_json(&target, &TestPayload { value: "first" })
+            .await
+            .expect("first write");
+        storage
+            .write_json(&target, &TestPayload { value: "second" })
+            .await
+            .expect("second write");
+
+        let saved = tokio::fs::read_to_string(&target).await.expect("read target");
+        assert!(saved.contains("second"));
+
+        std::fs::remove_dir_all(temp_root).expect("cleanup");
     }
 }

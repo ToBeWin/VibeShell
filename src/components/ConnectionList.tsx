@@ -1,4 +1,5 @@
 import { Server, Trash2, Edit, Clock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { SavedConnection } from '../hooks/useConnectionManager';
 import { useState } from 'react';
 
@@ -17,6 +18,7 @@ export function ConnectionList({
   onEdit,
   onDelete,
 }: ConnectionListProps) {
+  const { t } = useTranslation();
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const handleDelete = (id: string) => {
@@ -30,7 +32,7 @@ export function ConnectionList({
   };
 
   const formatLastUsed = (timestamp: number) => {
-    if (timestamp === 0) return 'Never';
+    if (timestamp === 0) return t('connectionList.never');
     const date = new Date(timestamp * 1000);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
@@ -38,10 +40,10 @@ export function ConnectionList({
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffMins < 1) return t('connectionList.justNow');
+    if (diffMins < 60) return t('connectionList.minutesAgo', { count: diffMins });
+    if (diffHours < 24) return t('connectionList.hoursAgo', { count: diffHours });
+    if (diffDays < 7) return t('connectionList.daysAgo', { count: diffDays });
     return date.toLocaleDateString();
   };
 
@@ -57,8 +59,8 @@ export function ConnectionList({
     return (
       <div className="text-center py-8">
         <Server size={48} className="mx-auto mb-4 text-gray-600" />
-        <p className="text-sm text-gray-400">No saved connections</p>
-        <p className="text-xs text-gray-600 mt-2">Create a new connection to get started</p>
+        <p className="text-sm text-gray-400">{t('connectionList.emptyTitle')}</p>
+        <p className="text-xs text-gray-600 mt-2">{t('connectionList.emptyBody')}</p>
       </div>
     );
   }
@@ -98,7 +100,7 @@ export function ConnectionList({
                 onEdit(connection);
               }}
               className="p-1.5 rounded-md bg-black/50 hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-              title="Edit connection"
+              title={t('connectionList.edit')}
             >
               <Edit size={12} />
             </button>
@@ -112,7 +114,7 @@ export function ConnectionList({
                   ? 'bg-red-500 text-white'
                   : 'bg-black/50 hover:bg-red-500/20 text-gray-400 hover:text-red-400'
               }`}
-              title={deleteConfirm === connection.id ? 'Click again to confirm' : 'Delete connection'}
+              title={deleteConfirm === connection.id ? t('connectionList.deleteConfirm') : t('connectionList.delete')}
             >
               <Trash2 size={12} />
             </button>

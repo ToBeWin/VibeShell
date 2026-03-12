@@ -1,17 +1,38 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  ChevronRight, ChevronDown, Cpu, FolderOpen, Globe, Pencil, Plus, 
-  Settings, Terminal as TerminalIcon, Trash2, FolderCog
+import {
+  ChevronDown,
+  ChevronRight,
+  Cpu,
+  FolderCog,
+  FolderOpen,
+  Github,
+  Monitor,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
+  Plus,
+  Settings,
+  Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useState, useEffect } from 'react';
-import { ServerConfig } from '../lib/tauri';
+import { useEffect, useState } from 'react';
+import { ServerConfig, openExternalUrl } from '../lib/tauri';
 import { useServerGroups } from '../hooks/useServerGroups';
+import { BrandMark } from './BrandMark';
 import { ServerContextMenu } from './ServerContextMenu';
 import { GroupManagementModal } from './GroupManagementModal';
 
 export interface LocalServer extends ServerConfig {
   connected: boolean;
+}
+
+function getServerMonogram(name: string) {
+  const parts = name.split(/[\s-_]+/).filter(Boolean);
+  const monogram = parts
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase() ?? '')
+    .join('');
+  return monogram || name.slice(0, 1).toUpperCase() || '?';
 }
 
 interface WorkspaceSidebarV2Props {
@@ -20,13 +41,15 @@ interface WorkspaceSidebarV2Props {
   aiOpen: boolean;
   sftpOpen: boolean;
   aiOnline: boolean;
+  collapsed: boolean;
   onSelectServer: (server: LocalServer) => void;
   onAddServer: () => void;
   onEditServer: (server: LocalServer) => void;
   onDeleteServer: (server: LocalServer) => void;
   onToggleAi: () => void;
   onToggleSftp: () => void;
-  onToggleLanguage: () => void;
+  onToggleZenMode: () => void;
+  onToggleCollapse: () => void;
   onOpenSettings: () => void;
 }
 
@@ -36,16 +59,18 @@ export function WorkspaceSidebarV2({
   aiOpen,
   sftpOpen,
   aiOnline,
+  collapsed,
   onSelectServer,
   onAddServer,
   onEditServer,
   onDeleteServer,
   onToggleAi,
   onToggleSftp,
-  onToggleLanguage,
+  onToggleZenMode,
+  onToggleCollapse,
   onOpenSettings,
 }: WorkspaceSidebarV2Props) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { groups, toggleGroupCollapsed, addServerToGroup, saveGroup, deleteGroup, reorderGroups } = useServerGroups();
   const [searchQuery, setSearchQuery] = useState('');
   const [contextMenu, setContextMenu] = useState<{
@@ -57,13 +82,11 @@ export function WorkspaceSidebarV2({
   const [dragOverGroupId, setDragOverGroupId] = useState<string | null>(null);
   const [showGroupManagement, setShowGroupManagement] = useState(false);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd+K or Ctrl+K for search focus
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        const input = document.querySelector<HTMLInputElement>('input[placeholder="Search servers..."]');
+        const input = document.querySelector<HTMLInputElement>('input[data-sidebar-search="true"]');
         if (input) {
           input.focus();
           input.select();
@@ -75,25 +98,20 @@ export function WorkspaceSidebarV2({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Group servers by group
   const serversByGroup = groups.reduce((acc, group) => {
     acc[group.id] = servers.filter(s => group.server_ids.includes(s.id));
     return acc;
   }, {} as Record<string, LocalServer[]>);
 
-  // Ungrouped servers
-  const ungroupedServers = servers.filter(s => 
-    !groups.some(g => g.server_ids.includes(s.id))
-  );
+  const ungroupedServers = servers.filter(s => !groups.some(g => g.server_ids.includes(s.id)));
 
-  // Filter servers by search query
   const filteredServers = (serverList: LocalServer[]) => {
     if (!searchQuery) return serverList;
     const query = searchQuery.toLowerCase();
-    return serverList.filter(s => 
+    return serverList.filter(s =>
       s.name.toLowerCase().includes(query) ||
       s.host.toLowerCase().includes(query) ||
-      s.user.toLowerCase().includes(query)
+      s.user.toLowerCase().includes(query),
     );
   };
 
@@ -111,12 +129,6 @@ export function WorkspaceSidebarV2({
   const handleMoveToGroup = async (groupId: string, serverId: string) => {
     try {
       await addServerToGroup(groupId, serverId);
-      // 找到目标分组名称
-      const targetGroup = groups.find(g => g.id === groupId);
-      if (targetGroup) {
-        // 这里可以添加 toast 通知，但需要从 App.tsx 传递 toast 函数
-        console.log(`Server moved to ${targetGroup.name}`);
-      }
     } catch (error) {
       console.error('Failed to move server to group:', error);
     }
@@ -133,10 +145,6 @@ export function WorkspaceSidebarV2({
     setDragOverGroupId(groupId);
   };
 
-  const handleDragLeave = () => {
-    setDragOverGroupId(null);
-  };
-
   const handleDrop = async (e: React.DragEvent, groupId: string) => {
     e.preventDefault();
     const serverId = e.dataTransfer.getData('serverId');
@@ -146,183 +154,274 @@ export function WorkspaceSidebarV2({
     setDragOverGroupId(null);
   };
 
+  const handleOpenGitHub = () => {
+    void openExternalUrl('https://github.com/ToBeWin/VibeShell');
+  };
+
+  const collapsedServers = filteredServers(servers).slice(0, 8);
+
   return (
     <motion.aside
       initial={{ x: -260, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       exit={{ x: -260, opacity: 0 }}
       transition={{ type: 'spring', stiffness: 360, damping: 38 }}
-      className="w-[252px] shrink-0 bg-[#08080E]/95 backdrop-blur-3xl border-r border-white/[0.04] flex flex-col shadow-[4px_0_30px_rgba(0,0,0,0.4)]"
+      className={`flex shrink-0 flex-col border-r shadow-[8px_0_40px_rgba(0,0,0,0.35)] backdrop-blur-3xl ${collapsed ? 'w-[68px]' : 'w-[268px]'}`}
+      style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--panel-bg) 92%, black), color-mix(in srgb, var(--panel-bg) 84%, black))', borderColor: 'var(--panel-border)' }}
     >
-      {/* Header */}
-      <div className="h-14 flex items-center px-5 shrink-0">
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-violet-600 to-cyan-500 flex items-center justify-center shadow-[0_0_20px_rgba(124,58,237,0.35)]">
-          <TerminalIcon size={16} className="text-white" />
-        </div>
-        <span className="ml-2.5 font-semibold tracking-wide text-white">{t('app.title')}</span>
-        <span className="ml-auto text-[10px] text-violet-300/70 bg-violet-500/10 px-2 py-0.5 rounded-full border border-violet-500/15">
-          {t('app.version')}
-        </span>
-      </div>
-
-      {/* Search Bar */}
-      <div className="px-3 pb-2">
-        <div className="relative">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search servers..."
-            className="w-full px-3 py-1.5 bg-white/[0.05] border border-white/[0.08] rounded-lg text-xs text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
-          />
-          <kbd className="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] text-gray-600 bg-white/[0.03] border border-white/[0.08] rounded">
-            ⌘K
-          </kbd>
-        </div>
-      </div>
-
-      {/* Server Groups */}
-      <div className="flex-1 overflow-y-auto px-3 py-1">
-        {/* Groups Header with Management Button */}
-        <div className="flex items-center justify-between px-2 py-1.5 mb-2">
-          <div className="text-[11px] font-bold uppercase tracking-widest text-gray-700">
-            Server Groups
+      {collapsed ? (
+        <>
+          <div className="relative flex h-16 shrink-0 items-center justify-center">
+            <BrandMark compact />
+            <button
+              onClick={onToggleCollapse}
+              title={t('sidebar.expandSidebar')}
+              className="absolute right-1 top-5 rounded-lg p-1.5 text-gray-600 transition-all hover:bg-white/[0.05] hover:text-gray-300"
+            >
+              <PanelLeftOpen size={14} />
+            </button>
           </div>
-          <button
-            onClick={() => setShowGroupManagement(true)}
-            className="p-1 text-gray-600 hover:text-gray-400 hover:bg-white/[0.05] rounded transition-all"
-            title="管理分组"
-          >
-            <FolderCog size={12} />
-          </button>
-        </div>
 
-        {groups.map(group => {
-          const groupServers = filteredServers(serversByGroup[group.id] || []);
-          if (searchQuery && groupServers.length === 0) return null;
-
-          return (
-            <div key={group.id} className="mb-2">
-              {/* Group Header */}
-              <button
-                onClick={() => toggleGroupCollapsed(group.id)}
-                onDragOver={(e) => handleDragOver(e, group.id)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, group.id)}
-                className={`w-full flex items-center gap-2 px-2 py-1.5 text-[11px] font-bold uppercase tracking-widest transition-colors rounded-lg ${
-                  dragOverGroupId === group.id
-                    ? 'bg-violet-500/20 border-2 border-violet-500/50 text-violet-300'
-                    : 'text-gray-600 hover:text-gray-400 hover:bg-white/[0.02] border-2 border-transparent'
-                }`}
-              >
-                {group.collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                {group.icon && <span>{group.icon}</span>}
-                <span>{group.name}</span>
-                <span className="ml-auto text-[10px] text-gray-700">{groupServers.length}</span>
-              </button>
-
-              {/* Group Servers */}
-              <AnimatePresence>
-                {!group.collapsed && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
+          <div className="flex min-h-0 flex-1 flex-col px-2 py-2">
+            <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+              <div className="space-y-2">
+                {collapsedServers.map(server => (
+                  <button
+                    key={server.id}
+                    type="button"
+                    title={`${server.name} · ${server.user}@${server.host}`}
+                    onClick={() => onSelectServer(server)}
+                    onContextMenu={(e) => handleContextMenu(e, server.id)}
+                    className={`relative mx-auto flex h-10 w-10 items-center justify-center rounded-xl border transition-all ${
+                      activeServer.id === server.id
+                        ? 'border-cyan-300/22 bg-cyan-400/[0.09] text-white shadow-[0_8px_20px_rgba(34,211,238,0.08)]'
+                        : 'border-white/[0.03] bg-white/[0.015] text-gray-400 hover:border-white/[0.08] hover:bg-white/[0.04] hover:text-gray-200'
+                    }`}
                   >
-                    {groupServers.map(server => (
-                      <ServerItem
-                        key={server.id}
-                        server={server}
-                        isActive={activeServer.id === server.id}
-                        onSelect={onSelectServer}
-                        onEdit={onEditServer}
-                        onDelete={onDeleteServer}
-                        onContextMenu={(e) => handleContextMenu(e, server.id, group.id)}
-                        onDragStart={(e) => handleDragStart(e, server.id)}
-                      />
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          );
-        })}
+                    <span className={`absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full ${server.connected ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]' : 'bg-gray-700'}`} />
+                    <span className="text-[10px] font-semibold tracking-[0.06em] text-white/90">
+                      {getServerMonogram(server.name)}
+                    </span>
+                  </button>
+                ))}
+              </div>
 
-        {/* Ungrouped Servers */}
-        {ungroupedServers.length > 0 && (
-          <div className="mb-2">
-            <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-widest text-gray-700">
-              Other
+              <button
+                onClick={onAddServer}
+                title={t('sidebar.addServer')}
+                className="mx-auto mt-3 flex h-10 w-10 items-center justify-center rounded-xl border border-dashed border-cyan-300/14 bg-cyan-400/[0.03] text-gray-500 transition-all hover:border-cyan-300/24 hover:bg-cyan-400/[0.08] hover:text-gray-200"
+              >
+                <Plus size={16} />
+              </button>
             </div>
-            {filteredServers(ungroupedServers).map(server => (
-              <ServerItem
-                key={server.id}
-                server={server}
-                isActive={activeServer.id === server.id}
-                onSelect={onSelectServer}
-                onEdit={onEditServer}
-                onDelete={onDeleteServer}
-                onContextMenu={(e) => handleContextMenu(e, server.id)}
-                onDragStart={(e) => handleDragStart(e, server.id)}
-              />
-            ))}
           </div>
-        )}
 
-        {/* Add Server Button */}
-        <button
-          onClick={onAddServer}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-gray-600 hover:text-gray-300 text-[13px] transition-all rounded-xl hover:bg-white/[0.04] border border-dashed border-white/[0.06] mt-2 group"
-        >
-          <Plus size={14} className="group-hover:rotate-90 transition-transform duration-300" /> 
-          {t('sidebar.addServer')}
-        </button>
-      </div>
+          <div className="space-y-2 border-t border-white/[0.05] px-2 py-3">
+            <RailButton active={aiOpen} title={t('sidebar.aiAssistant')} onClick={onToggleAi}>
+              <Cpu size={16} className={aiOpen ? 'text-cyan-300' : ''} />
+              <span className="absolute top-2 right-2 h-1.5 w-1.5 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" style={{ opacity: aiOnline ? 1 : 0.45 }} />
+            </RailButton>
+            <RailButton active={sftpOpen} title={t('sidebar.sftpBrowser')} onClick={onToggleSftp}>
+              <FolderOpen size={16} className={sftpOpen ? 'text-cyan-300' : ''} />
+            </RailButton>
+            <RailButton title={t('sidebar.zenMode')} onClick={onToggleZenMode}>
+              <Monitor size={16} />
+            </RailButton>
 
-      {/* Bottom Actions */}
-      <div className="p-3 border-t border-white/[0.04] space-y-0.5">
-        <button
-          onClick={onToggleAi}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-all ${
-            aiOpen ? 'bg-violet-500/10 text-violet-300 border border-violet-400/15' : 'text-gray-500 hover:text-gray-200 hover:bg-white/[0.04] border border-transparent'
-          }`}
-        >
-          <Cpu size={15} className={aiOpen ? 'text-violet-400' : ''} />
-          {t('sidebar.aiAssistant')}
-          {aiOnline ? (
-            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" />
-          ) : (
-            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-yellow-500/60" />
-          )}
-        </button>
-        <button
-          onClick={onToggleSftp}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] transition-all ${
-            sftpOpen ? 'bg-violet-500/10 text-violet-300 border border-violet-400/15' : 'text-gray-500 hover:text-gray-200 hover:bg-white/[0.04] border border-transparent'
-          }`}
-        >
-          <FolderOpen size={15} className={sftpOpen ? 'text-violet-400' : ''} /> 
-          {t('sidebar.sftpBrowser')}
-        </button>
-        <div className="border-t border-white/[0.04] pt-1 mt-1 space-y-0.5">
-          <button
-            onClick={onToggleLanguage}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] text-gray-600 hover:text-gray-300 hover:bg-white/[0.04] transition-all"
-          >
-            <Globe size={15} /> {i18n.language === 'en' ? '中文' : 'English'}
-          </button>
-          <button
-            onClick={onOpenSettings}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[13px] text-gray-600 hover:text-gray-300 hover:bg-white/[0.04] transition-all"
-          >
-            <Settings size={15} /> {t('sidebar.settings')}
-          </button>
-        </div>
-      </div>
-      
-      {/* Context Menu */}
+            <div className="mt-2 space-y-2 border-t border-white/[0.05] pt-2">
+              <RailIconButton title={t('sidebar.github')} onClick={handleOpenGitHub}>
+                <Github size={16} />
+              </RailIconButton>
+              <RailIconButton title={t('sidebar.settings')} onClick={onOpenSettings}>
+                <Settings size={16} />
+              </RailIconButton>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="flex h-16 shrink-0 items-center px-5">
+            <BrandMark />
+            <div className="ml-3 min-w-0">
+              <div className="font-semibold tracking-[0.01em] text-white">{t('app.title')}</div>
+              <div className="text-[10px] uppercase tracking-[0.24em] text-gray-500">{t('sidebar.shellSubtitle')}</div>
+            </div>
+            <span className="ml-auto rounded-full border border-cyan-300/12 bg-cyan-400/[0.05] px-2.5 py-1 text-[10px] text-cyan-100/80">
+              {t('app.version')}
+            </span>
+            <button
+              onClick={onToggleCollapse}
+              title={t('sidebar.collapseSidebar')}
+              className="ml-2 rounded-lg p-1.5 text-gray-600 transition-all hover:bg-white/[0.05] hover:text-gray-300"
+            >
+              <PanelLeftClose size={14} />
+            </button>
+          </div>
+
+          <div className="px-4 pb-3">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                data-sidebar-search="true"
+                placeholder={t('sidebar.search') ?? 'Search servers...'}
+                className="w-full rounded-2xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-gray-500 transition-colors focus:border-cyan-300/30 focus:outline-none"
+              />
+              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg border border-white/[0.08] bg-black/20 px-2 py-1 text-[10px] text-gray-600">
+                ⌘K
+              </kbd>
+            </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col px-4 py-1">
+            <div className="mb-3 flex shrink-0 items-center justify-between px-2 py-1.5">
+              <div className="text-[11px] font-bold uppercase tracking-[0.28em] text-gray-600">{t('sidebar.servers')}</div>
+              <button
+                onClick={() => setShowGroupManagement(true)}
+                className="rounded-lg p-1.5 text-gray-600 transition-all hover:bg-white/[0.05] hover:text-gray-300"
+                title={t('sidebar.manageGroups') ?? 'Manage groups'}
+              >
+                <FolderCog size={12} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+              {groups.map(group => {
+                const groupServers = filteredServers(serversByGroup[group.id] || []);
+                if (searchQuery && groupServers.length === 0) return null;
+
+                return (
+                  <div key={group.id} className="mb-2">
+                    <button
+                      onClick={() => toggleGroupCollapsed(group.id)}
+                      onDragOver={(e) => handleDragOver(e, group.id)}
+                      onDragLeave={() => setDragOverGroupId(null)}
+                      onDrop={(e) => handleDrop(e, group.id)}
+                      className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-[11px] font-bold uppercase tracking-[0.24em] transition-colors ${
+                        dragOverGroupId === group.id
+                          ? 'border-2 border-cyan-300/30 bg-cyan-400/[0.12] text-cyan-100'
+                          : 'border-2 border-transparent text-gray-600 hover:bg-white/[0.03] hover:text-gray-300'
+                      }`}
+                    >
+                      {group.collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                      {group.icon && <span>{group.icon}</span>}
+                      <span>{group.name}</span>
+                      <span className="ml-auto text-[10px] text-gray-700">{groupServers.length}</span>
+                    </button>
+
+                    <AnimatePresence>
+                      {!group.collapsed && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          {groupServers.map(server => (
+                            <ServerItem
+                              key={server.id}
+                              server={server}
+                              isActive={activeServer.id === server.id}
+                              onSelect={onSelectServer}
+                              onEdit={onEditServer}
+                              onDelete={onDeleteServer}
+                              onContextMenu={(e) => handleContextMenu(e, server.id, group.id)}
+                              onDragStart={(e) => handleDragStart(e, server.id)}
+                            />
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+
+              {ungroupedServers.length > 0 && (
+                <div className="mb-2">
+                  <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-[0.24em] text-gray-700">
+                    {t('sidebar.other') ?? 'Other'}
+                  </div>
+                  {filteredServers(ungroupedServers).map(server => (
+                    <ServerItem
+                      key={server.id}
+                      server={server}
+                      isActive={activeServer.id === server.id}
+                      onSelect={onSelectServer}
+                      onEdit={onEditServer}
+                      onDelete={onDeleteServer}
+                      onContextMenu={(e) => handleContextMenu(e, server.id)}
+                      onDragStart={(e) => handleDragStart(e, server.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={onAddServer}
+              title={t('sidebar.addServer')}
+              className="group mt-3 flex w-full items-center gap-2.5 rounded-2xl border border-dashed border-cyan-300/12 bg-cyan-400/[0.03] px-3.5 py-3 text-[13px] text-gray-500 transition-all hover:border-cyan-300/22 hover:bg-cyan-400/[0.08] hover:text-gray-200"
+            >
+              <Plus size={14} className="shrink-0 transition-transform duration-300 group-hover:rotate-90" />
+              {t('sidebar.addServer')}
+            </button>
+          </div>
+
+          <div className="space-y-1 border-t border-white/[0.05] p-4">
+            <button
+              onClick={onToggleAi}
+              title={t('sidebar.aiAssistant')}
+              className={`relative flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-[13px] transition-all ${
+                aiOpen ? 'border-cyan-300/16 bg-cyan-400/[0.08] text-cyan-100' : 'border-transparent text-gray-500 hover:bg-white/[0.04] hover:text-gray-200'
+              }`}
+            >
+              <Cpu size={15} className={aiOpen ? 'text-cyan-300' : ''} />
+              {t('sidebar.aiAssistant')}
+              <div className="ml-auto h-1.5 w-1.5 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" style={{ opacity: aiOnline ? 1 : 0.45 }} />
+            </button>
+            <button
+              onClick={onToggleSftp}
+              title={t('sidebar.sftpBrowser')}
+              className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-[13px] transition-all ${
+                sftpOpen ? 'border-cyan-300/16 bg-cyan-400/[0.08] text-cyan-100' : 'border-transparent text-gray-500 hover:bg-white/[0.04] hover:text-gray-200'
+              }`}
+            >
+              <FolderOpen size={15} className={sftpOpen ? 'text-cyan-300' : ''} />
+              {t('sidebar.sftpBrowser')}
+            </button>
+            <button
+              onClick={onToggleZenMode}
+              title={t('sidebar.zenMode')}
+              className="flex w-full items-center gap-3 rounded-2xl border border-transparent px-3 py-3 text-[13px] text-gray-500 transition-all hover:bg-white/[0.04] hover:text-gray-200"
+            >
+              <Monitor size={15} />
+              {t('sidebar.zenMode')}
+            </button>
+
+            <div className="mt-2 space-y-1 border-t border-white/[0.05] pt-2">
+              <button
+                onClick={handleOpenGitHub}
+                title={t('sidebar.github')}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-gray-600 transition-all hover:bg-white/[0.04] hover:text-gray-300"
+              >
+                <Github size={15} />
+                {t('sidebar.github')}
+              </button>
+              <button
+                onClick={onOpenSettings}
+                title={t('sidebar.settings')}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] text-gray-600 transition-all hover:bg-white/[0.04] hover:text-gray-300"
+              >
+                <Settings size={15} />
+                {t('sidebar.settings')}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       <AnimatePresence>
         {contextMenu && (
           <ServerContextMenu
@@ -337,7 +436,6 @@ export function WorkspaceSidebarV2({
         )}
       </AnimatePresence>
 
-      {/* Group Management Modal */}
       <AnimatePresence>
         {showGroupManagement && (
           <GroupManagementModal
@@ -353,7 +451,39 @@ export function WorkspaceSidebarV2({
   );
 }
 
-// Server Item Component
+interface RailButtonProps {
+  active?: boolean;
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}
+
+function RailButton({ active = false, title, onClick, children }: RailButtonProps) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className={`relative mx-auto flex h-10 w-10 items-center justify-center rounded-xl border transition-all ${
+        active ? 'border-cyan-300/16 bg-cyan-400/[0.08] text-cyan-100' : 'border-transparent text-gray-500 hover:bg-white/[0.04] hover:text-gray-200'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function RailIconButton({ title, onClick, children }: RailButtonProps) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl text-gray-600 transition-all hover:bg-white/[0.04] hover:text-gray-300"
+    >
+      {children}
+    </button>
+  );
+}
+
 interface ServerItemProps {
   server: LocalServer;
   isActive: boolean;
@@ -379,18 +509,18 @@ function ServerItem({ server, isActive, onSelect, onEdit, onDelete, onContextMen
           onSelect(server);
         }
       }}
-      className={`group w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 mb-0.5 cursor-move ${
+      className={`group mb-0.5 flex w-full cursor-move items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-150 ${
         isActive
-          ? 'bg-violet-500/10 border border-violet-400/15 text-white'
-          : 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200 border border-transparent'
+          ? 'border-violet-400/15 bg-violet-500/10 text-white'
+          : 'border-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
       }`}
     >
-      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${server.connected ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]' : 'bg-gray-700'}`} />
-      <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-medium truncate">{server.name}</div>
-        <div className="text-[11px] font-mono text-gray-600 truncate">{server.user}@{server.host}</div>
+      <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${server.connected ? 'bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]' : 'bg-gray-700'}`} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-medium">{server.name}</div>
+        <div className="truncate text-[11px] font-mono text-gray-600">{server.user}@{server.host}</div>
       </div>
-      <div className="ml-auto flex items-center gap-1 shrink-0">
+      <div className="ml-auto flex shrink-0 items-center gap-1">
         <button
           onClick={e => { e.stopPropagation(); onEdit(server); }}
           className="rounded-md p-1 text-gray-600 opacity-0 transition-all hover:bg-white/10 hover:text-white group-hover:opacity-100"
@@ -403,7 +533,7 @@ function ServerItem({ server, isActive, onSelect, onEdit, onDelete, onContextMen
         >
           <Trash2 size={12} />
         </button>
-        {isActive && <ChevronRight size={13} className="text-violet-400 shrink-0" />}
+        {isActive && <ChevronRight size={13} className="shrink-0 text-violet-400" />}
       </div>
     </div>
   );

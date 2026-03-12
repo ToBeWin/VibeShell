@@ -28,6 +28,7 @@ export interface WorkspaceStateValue {
 export function createPaneForServer(server: WorkspaceServer): PaneConfig {
   return {
     id: `pane-${server.id}`,
+    serverId: server.id,
     sessionKey: `session-${server.id}`,
     sessionId: server.connected ? `session-${server.id}` : undefined,
     label: `${server.user}@${server.host}`,
@@ -52,6 +53,11 @@ export function createWorkspaceSeed(servers: WorkspaceServer[]) {
 }
 
 export function findPaneForServer(panes: PaneConfig[], server: WorkspaceServer): PaneConfig | undefined {
+  const byServerId = panes.find(pane => pane.serverId === server.id);
+  if (byServerId) {
+    return byServerId;
+  }
+
   return panes.find(
     pane =>
       pane.host === server.host &&
@@ -61,11 +67,21 @@ export function findPaneForServer(panes: PaneConfig[], server: WorkspaceServer):
 }
 
 export function isPaneOwnedByServer(pane: PaneConfig, serverId: string): boolean {
-  return pane.id === `pane-${serverId}` || (pane.sessionKey?.startsWith(`session-${serverId}`) ?? false);
+  return (
+    pane.serverId === serverId ||
+    pane.id === `pane-${serverId}` ||
+    (pane.sessionKey?.startsWith(`session-${serverId}`) ?? false)
+  );
 }
 
 export function findSessionForPane(sessions: WorkspaceServer[], pane?: PaneConfig): WorkspaceServer | undefined {
   if (!pane) return undefined;
+  if (pane.serverId) {
+    const byId = sessions.find(session => session.id === pane.serverId);
+    if (byId) {
+      return byId;
+    }
+  }
   return sessions.find(session => session.host === pane.host && session.user === pane.user);
 }
 
@@ -98,9 +114,11 @@ export function selectSessionTargets(
   sessionId: string
 ) {
   const session = sessions.find(entry => entry.id === sessionId);
-  const pane = panes.find(
-    entry => entry.id === `pane-${sessionId}` || entry.sessionKey === `session-${sessionId}`
-  ) ?? (session ? findPaneForServer(panes, session) : undefined);
+  const pane = panes.find(entry => entry.serverId === sessionId)
+    ?? panes.find(
+      entry => entry.id === `pane-${sessionId}` || entry.sessionKey === `session-${sessionId}`
+    )
+    ?? (session ? findPaneForServer(panes, session) : undefined);
 
   return {
     pane,
@@ -112,6 +130,7 @@ export function createDerivedPane(sourcePane: PaneConfig, activeServerId: string
   return {
     ...sourcePane,
     id: `pane-${Date.now()}`,
+    serverId: sourcePane.serverId ?? activeServerId,
     sessionKey: `${sourcePane.sessionKey ?? sourcePane.sessionId ?? `session-${activeServerId}`}-${Date.now()}`,
     sessionId: undefined,
     label: `${sourcePane.user}@${sourcePane.host}`,

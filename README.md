@@ -1,88 +1,81 @@
-# VibeShell 🔮
+# VibeShell
 
-> A modern, AI-native, cross-platform terminal focused on speed, security, and developer flow.  
-> **Status:** Beta (`v0.1.0`)
+> AI-native remote workspace for SSH and SFTP.  
+> **Status:** Beta `v0.2.0`
 
-VibeShell is an SSH/SFTP desktop terminal built with a native Rust backend and a modern React frontend. It combines multi-pane terminal workflows, secure credential handling, and integrated AI assistance in a single app.
+VibeShell is a desktop app built with `Tauri 2 + Rust + React` for people who live in terminals but want stronger context, safer remote workflows, and an AI assistant that feels native instead of bolted on.
 
-## Core Vision
+It combines:
 
-1. **Extreme Performance**: GPU-accelerated rendering via xterm + WebGL and low-latency I/O through Rust async networking.
-2. **AI-Native Workflow**: Built-in assistant with terminal-aware context and provider abstraction (Ollama/OpenAI/Anthropic).
-3. **Privacy First**: Local-first architecture with OS keychain storage and no required cloud account.
-4. **Focused UX**: Clean, keyboard-friendly layout with split panes, workspace sessions, and optional Zen mode.
+- multi-session terminal workflows
+- secure SSH/SFTP access
+- local-first AI with Ollama support
+- workspace persistence
+- a focused dark UI designed for day-to-day remote operations
 
----
+## What `v0.2` includes
 
-## Architecture Overview
+- Native desktop shell powered by `Tauri`
+- Multi-session terminal workspace with split panes
+- SSH sessions with resize and streaming I/O
+- SFTP drawer for remote file browsing and editing
+- AI side panel with Markdown rendering, resizable width, and local Ollama integration
+- Sidebar with collapsible navigation, Zen mode, GitHub link, and app preferences
+- Theme, language, and terminal font preferences with persistence
+- Secure credential storage and SSH host trust workflow
+- Workspace/session persistence and server grouping
 
-### Tech Stack
+## Product direction
 
-- **Frontend**: React 18, Vite, TypeScript, Tailwind CSS, Framer Motion, i18next.
-- **Terminal**: xterm.js (`@xterm/xterm`, fit addon, WebGL addon).
-- **Desktop Runtime**: Tauri 2.
-- **Backend**: Rust + Tokio async ecosystem.
-- **SSH/SFTP**: `russh`, `russh-sftp`.
-- **Security**: `keyring` for secure credential storage.
+VibeShell is currently optimized around:
 
-### Repository Structure
+- `SSH` for terminal work
+- `SFTP` for remote files
+- `Ollama` as the best local AI path
 
-- `src/`: Frontend application code.
-  - `src/App.tsx`: Main composition layer for shell UI, panes, modals, and app state orchestration.
-  - `src/components/TerminalGrid.tsx`: Split-pane terminal UI and pane lifecycle controls.
-  - `src/components/SettingsPanel.tsx`: Provider settings, host key management, and preferences.
-  - `src/lib/tauri.ts`: Typed frontend bridge for all backend commands.
-  - `src/i18n.ts`: Internationalization setup.
-- `src-tauri/src/`: Rust backend implementation.
-  - `main.rs`: Tauri entry point and command registration.
-  - `ssh/session.rs`: SSH connection lifecycle, PTY setup, and event streaming.
-  - `ssh/config.rs`: Host key trust and secure credential operations.
-  - `ai/mod.rs`: AI provider gateway and streaming support.
-  - `sftp/mod.rs` and `ftp/mod.rs`: Remote file operations over SFTP/FTP.
+`FTP` support still exists in backend code paths, but it is no longer part of the main UI flow in `v0.2`. The current product direction is to keep the core experience opinionated and reliable around `22`-port remote workflows.
 
----
+## Tech stack
 
-## Implemented Features
+- Frontend: `React 18`, `TypeScript`, `Vite`, `Tailwind CSS`, `Framer Motion`, `i18next`
+- Terminal: `xterm.js` with fit + WebGL addons
+- Desktop runtime: `Tauri 2`
+- Backend: `Rust`, `Tokio`
+- SSH/SFTP: `russh`, `russh-sftp`
+- Secure storage: OS keychain via `keyring`
+- AI: local Ollama plus configurable cloud provider profiles
 
-- [x] Tauri + Vite integration for native desktop workflows.
-- [x] Multi-pane terminal layout with horizontal/vertical splitting.
-- [x] SSH connection and terminal streaming with resize support.
-- [x] Host key trust workflow and keychain-backed credential storage.
-- [x] AI chat panel with configurable providers and streaming responses.
-- [x] Server groups, workspace session persistence, and command history.
-- [x] Basic remote file operations integrated with active sessions.
+## Repository structure
 
----
+- `src/`
+  - frontend application
+  - UI composition, state orchestration, AI drawer, terminal grid, settings, i18n
+- `src-tauri/src/`
+  - Rust backend
+  - SSH/SFTP/session lifecycle
+  - AI provider bridge
+  - storage and trust management
+- `scripts/`
+  - helper scripts such as protocol smoke checks and icon generation
 
-## Roadmap
-
-### Short-Term
-
-- Improve remote file UX and full capability parity across protocols.
-- Harden reconnect behavior and session restoration under edge conditions.
-- Expand test coverage for state synchronization and multi-session flows.
-
-### Mid-Term
-
-- Enhanced keyboard-centric navigation for pane/session management.
-- Smarter long-context memory and retrieval strategy for AI interactions.
-- Packaging and release automation for stable cross-platform distribution.
-
----
-
-## Development Guide
+## Development
 
 ### Requirements
 
-- [Node.js](https://nodejs.org/) 18+
-- [Rust](https://rustup.rs/) stable toolchain
-- Xcode Command Line Tools (macOS)
-- Optional: [Ollama](https://ollama.ai/) for local model testing
+- `Node.js` 18+
+- `Rust` stable toolchain
+- Xcode Command Line Tools on macOS
+- optional: [Ollama](https://ollama.com/) for local AI
 
-### Run in Development
+### Install
 
 ```bash
 npm install
+```
+
+### Run
+
+```bash
 npm run tauri dev
 ```
 
@@ -96,6 +89,48 @@ npm run tauri build
 ### Test
 
 ```bash
-npm run test
+npm test
 cd src-tauri && cargo test
 ```
+
+## Ollama
+
+VibeShell is designed to work well with local Ollama:
+
+- the app can probe local models
+- it can attempt to start Ollama when needed
+- model selection uses the locally available model list
+
+If Ollama is not already running, you can still start it manually:
+
+```bash
+ollama serve
+```
+
+## Protocol smoke check
+
+There is a lightweight smoke test for verifying whether a target host actually exposes the expected remote endpoints before debugging the full UI flow:
+
+```bash
+SMOKE_HOST=your-server.example.com \
+SMOKE_SSH_PORT=22 \
+SMOKE_FTP_PORT=21 \
+SMOKE_SFTP_PORT=22 \
+npm run smoke:protocols
+```
+
+This is mostly useful during development and debugging. For the current product direction, `SSH/SFTP` are the primary paths.
+
+## Current maturity
+
+`v0.2` is no longer a throwaway prototype. The app is usable, the build is healthy, and the core architecture is in place.
+
+That said, it is still in active refinement:
+
+- SSH/SFTP real-world stability should keep improving
+- the AI workflow and context handling will continue to get stronger
+- visual polish is still being iterated
+
+## GitHub
+
+Project repository: [ToBeWin/VibeShell](https://github.com/ToBeWin/VibeShell)

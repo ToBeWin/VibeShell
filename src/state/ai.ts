@@ -79,6 +79,38 @@ export function usePaneAiState(activePaneId: string, welcomeMessage: string): Pa
     localStorage.setItem('aiConfig', JSON.stringify(aiConfig));
   }, [aiConfig]);
 
+  useEffect(() => {
+    const syncFromStorage = () => {
+      const saved = localStorage.getItem('aiConfig');
+      if (!saved) return;
+      try {
+        const parsed = JSON.parse(saved) as AiConfig;
+        setAiConfig(parsed);
+      } catch {
+      }
+    };
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'aiConfig') syncFromStorage();
+    };
+
+    const onCustomUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent<AiConfig>;
+      if (customEvent.detail) {
+        setAiConfig(customEvent.detail);
+        return;
+      }
+      syncFromStorage();
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('ai-config-updated', onCustomUpdate as EventListener);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('ai-config-updated', onCustomUpdate as EventListener);
+    };
+  }, []);
+
   const currentState = useMemo(
     () => ({
       currentChatHistory: paneChatHistory[activePaneId] ?? [{ role: 'assistant', content: welcomeMessage }],

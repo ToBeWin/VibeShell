@@ -1,7 +1,14 @@
 import { PaneConfig } from '../components/TerminalGrid';
-import { sshConnect } from '../lib/tauri';
+import { getServerPrivateKey, sshConnect } from '../lib/tauri';
 import { appendServerToWorkspace, ensurePaneForServer, isPaneOwnedByServer, WorkspaceServer } from './workspace';
 import { invoke } from '@tauri-apps/api/core';
+import { formatSshConnectionError } from './ssh-errors';
+import i18n from '../i18n';
+
+interface NoticeState {
+  title: string;
+  message: string;
+}
 
 interface UseServerActionsOptions {
   activePaneId: string;
@@ -9,6 +16,8 @@ interface UseServerActionsOptions {
   workspaceSessions: WorkspaceServer[];
   workspacePanes: PaneConfig[];
   ensureTrustedHostKey: (host: string, port: number) => Promise<boolean>;
+  requestSecureInput: (title: string, message: string, defaultValue?: string, confirmLabel?: string) => Promise<string | null>;
+  setNoticeModal: React.Dispatch<React.SetStateAction<NoticeState | null>>;
   setServers: React.Dispatch<React.SetStateAction<WorkspaceServer[]>>;
   setWorkspaceSessions: React.Dispatch<React.SetStateAction<WorkspaceServer[]>>;
   setWorkspacePanes: React.Dispatch<React.SetStateAction<PaneConfig[]>>;
@@ -23,6 +32,8 @@ export function useServerActions({
   workspaceSessions,
   workspacePanes,
   ensureTrustedHostKey,
+  requestSecureInput,
+  setNoticeModal,
   setServers,
   setWorkspaceSessions,
   setWorkspacePanes,
@@ -31,9 +42,10 @@ export function useServerActions({
   setActivePaneId,
 }: UseServerActionsOptions) {
   const handleServerConnected = async (server: WorkspaceServer, password: string) => {
-    const targetPane = workspacePanes.find(
-      pane => pane.id === activePaneId && pane.host === server.host && pane.user === server.user
-    );
+    const activePane = workspacePanes.find(pane => pane.id === activePaneId);
+    const targetPane = activePane && isPaneOwnedByServer(activePane, server.id)
+      ? activePane
+      : workspacePanes.find(pane => isPaneOwnedByServer(pane, server.id));
     const sessionId = targetPane?.sessionKey ?? `session-${server.id}`;
     setWorkspacePanes(prev => prev.map(entry => (
       entry.id === activePaneId ? { ...entry, connecting: true } : entry
@@ -48,7 +60,36 @@ export function useServerActions({
         return;
       }
 
-      await sshConnect(sessionId, server.host, server.port, server.user, password);
+      let privateKey: string | null = null;
+      let privateKeyPassphrase: string | null = null;
+      try {
+        privateKey = await getServerPrivateKey(server.id);
+        if (privateKey) {
+          privateKeyPassphrase = await requestSecureInput(
+            i18n.t('modal.privateKeyPassphraseTitle'),
+            i18n.t('modal.privateKeyPassphraseMessage', { user: server.user, host: server.host }),
+            '',
+            i18n.t('terminal.connect')
+          );
+          if (privateKeyPassphrase === null) {
+            setWorkspacePanes(prev => prev.map(entry => (
+              entry.id === activePaneId ? { ...entry, connecting: false } : entry
+            )));
+            return;
+          }
+        }
+      } catch {}
+
+      const pw = privateKey ? '' : password;
+      await sshConnect(
+        sessionId,
+        server.host,
+        server.port,
+        server.user,
+        pw,
+        privateKey ?? undefined,
+        privateKeyPassphrase ?? undefined
+      );
       setServers(prev => prev.map(entry => entry.id === server.id ? { ...entry, connected: true } : entry));
       setWorkspaceSessions(prev => prev.map(entry => entry.id === server.id ? { ...entry, connected: true } : entry));
       setWorkspacePanes(prev => prev.map(entry => (
@@ -61,7 +102,10 @@ export function useServerActions({
       setWorkspacePanes(prev => prev.map(entry => (
         entry.id === activePaneId ? { ...entry, connecting: false } : entry
       )));
-      console.warn('SSH connect failed:', error);
+      setNoticeModal({
+        title: i18n.t('modal.sshConnectionFailed'),
+        message: formatSshConnectionError(error),
+      });
     }
   };
 
