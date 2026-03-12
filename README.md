@@ -5,6 +5,10 @@
 
 VibeShell is a desktop app built with `Tauri 2 + Rust + React` for people who live in terminals but want stronger context, safer remote workflows, and an AI assistant that feels native instead of bolted on.
 
+![Main workspace](assets/demo1.png.png)
+![AI panel](assets/demo2.png.png)
+![SSH panel](assets/demo3.png.png)
+
 It combines:
 
 - multi-session terminal workflows
